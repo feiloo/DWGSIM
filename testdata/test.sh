@@ -25,7 +25,11 @@ do
 	diff -q tmp/${FILE} ${TESTDATADIR}/${FILE}
 done
 
-# Clean up the testdata
-find ${TESTDATADIR} \! -name "*gz" -type f | grep -v sh$ | xargs rm; 
+# Remove only the top-level files decompressed by this script. Do not recurse:
+# testdata also contains committed region metadata and source assets.
+for GZFILE in "${TESTDATADIR}"/*.gz
+do
+    rm -f "${GZFILE%.gz}"
+done
 
 rm -r tmp

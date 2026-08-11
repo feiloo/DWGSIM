@@ -2,6 +2,7 @@
 
 <!---toc start-->
   * [Overview](#overview)
+  * [Targeted reads and BED files](#targeted-reads-and-bed-files)
   * [Error rates explained](#error-rates-explained)
   * [Read names explained](#read-names-explained)
   * [Mate pair or paired end modes](#mate-pair-or-paired-end-modes)
@@ -42,6 +43,32 @@ Notes:
 
 - the longest supported insertion is 255bp
 - The `-H` mode will simulate a haploid genome, whereas the default is to simulate a diploid genome. 
+
+## Targeted reads and BED files
+
+Use `-x FILE` to restrict reference-derived reads to target intervals:
+
+```console
+dwgsim -x targets.bed -N 1000000 -1 100 -2 100 -d 350 -s 50 -y 0 reference.fa targeted
+```
+
+The regions file must follow this contract:
+
+- BED3 or wider text; the first three fields are contig, start, and end. Extra fields are ignored.
+- Coordinates are zero-based and half-open: `[start,end)`.
+- Contig names must exactly match the FASTA names.
+- Records must follow FASTA contig order, then nondecreasing start coordinate within each contig.
+- Every interval must satisfy `0 <= start < end <= contig_length`.
+- Blank lines, lines beginning with `#`, and UCSC `track` and `browser` lines are accepted.
+- Input must be uncompressed. Decompress `.bed.gz` files before passing them to `-x`.
+
+Malformed coordinates, empty files, unknown contigs, invalid bounds, and ordering errors are rejected with the BED line number. Overlapping or directly adjacent intervals are merged in memory.
+
+DWGSIM requires the entire outer paired-end fragment—not merely one read or any overlap—to fit within one merged interval. Raw exon/CDS intervals should therefore be padded and merged by at least the intended fragment flank. This is targeted placement, not a capture model: it does not reproduce bait efficiency, GC bias, uneven depth, duplicate formation, or off-target capture. Set `-y 0` when all reads must come from the target intervals.
+
+`-N` distributes an exact read-pair count over the target bases; `-C` computes mean coverage from their total length. Regions BED mode cannot be combined with amplicon mode (`-a`).
+
+The reproducible GRCh38 RefSeq CDS and blacklist-complement examples used by the smoke tests are described in [Human reference smoke tests](06_Human_Reference_Smoke_Tests.md).
 
 ## Error rates explained 
 
@@ -161,4 +188,3 @@ For mate pair reads, this means that E2 is always listed before E1.
 The FASTQs for BWA are split into two files, the first file for one end, the second file for the other, with the read that is 5' of the other in the first file.
 For paired end reads, this means that E1 is in the first file and E2 is in the second file.
 For mate pair reads, this means that E2 is in the first file and E1 is in the second file.
-

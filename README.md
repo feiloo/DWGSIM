@@ -52,13 +52,26 @@ Use `make help` to list all benchmark variables. Results are most comparable whe
 
 ## Full human-reference smoke test
 
-The full-reference workflow is pinned to the official NCBI RefSeq GRCh38.p14 assembly (`GCF_000001405.40`) and verifies the download against NCBI's published MD5 checksum.
+The full-reference workflow is pinned to the official NCBI RefSeq GRCh38.p14 assembly (`GCF_000001405.40`). It includes three reads-only smoke profiles:
 
-The download needs `curl`, `md5sum`, `gzip`, and roughly 5 GB of free disk space while unpacking. No additional genome-analysis toolkit is required.
+- WGS over the complete assembly;
+- WES-like reads over the complete published GIAB RefSeq CDS set, padded for fragment placement;
+- WGS over the complement of the released ENCODE GRCh38 blacklist (`ENCFF356LFX`).
+
+The reference and vendored BED sources are checksum-verified. Preparing the BEDs only uses shell tools and the bundled `samtools faidx`; GATK, bedtools, and bcftools are not required.
 
 ```sh
 make download
+make prepare-human-regions
 make test-human-reference
 ```
 
-The smoke test runs DWGSIM against the complete assembly in reads-only mode with mutations disabled. It verifies all three compressed FASTQ outputs and checks that each contains the expected number of records. Use `make help` to see variables for the output location and read-pair count.
+Each profile can also be run independently:
+
+```sh
+make test-human-wgs
+make test-human-wes
+make test-human-wgs-filtered
+```
+
+These are small smoke simulations (100 pairs by default), not 30x production datasets. They scan the full assembly, disable mutations and random off-target reads, verify all BGZF FASTQs, and check exact record counts. The BED downloads, transformations, checksums, limitations, and publication citations are documented in [Human reference smoke tests](docs/06_Human_Reference_Smoke_Tests.md).

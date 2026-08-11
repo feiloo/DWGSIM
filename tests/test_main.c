@@ -7,6 +7,8 @@
 
 #include "test_framework.h"
 #include "fastq_writer.h"
+#include "contigs.h"
+#include "regions_bed.h"
 
 /* Include test files here as they are added */
 /* #include "test_position.c" */
@@ -74,6 +76,56 @@ TEST(fastq_writer_thread_distribution) {
     ASSERT_EQ(0, fastq_writer_threads_for_stream(1, 2, 2));
 }
 
+TEST(regions_bed_half_open_boundaries) {
+    contigs_t *contigs = contigs_init();
+    regions_bed_txt *regions;
+    FILE *bed = tmpfile();
+    uint32_t position = UINT32_MAX;
+
+    ASSERT_NOT_NULL(contigs);
+    ASSERT_NOT_NULL(bed);
+    contigs_add(contigs, "chr1", 100);
+    contigs_add(contigs, "chr2", 100);
+
+    fputs("# BED comments are accepted\n", bed);
+    fputs("track name=targets\n", bed);
+    fputs("browser position chr1:1-100\n", bed);
+    fputs("chr1\t0\t10\tfirst\n", bed);
+    fputs("chr1\t10\t20\tadjacent\n", bed);
+    fputs("chr1\t30\t40\n", bed);
+    fputs("chr2\t5\t15\n", bed);
+    rewind(bed);
+
+    regions = regions_bed_init(bed, contigs);
+    ASSERT_NOT_NULL(regions);
+    ASSERT_EQ(3, regions->n);
+    ASSERT_EQ(0, regions->start[0]);
+    ASSERT_EQ(20, regions->end[0]);
+    ASSERT_EQ(30, regions->start[1]);
+    ASSERT_EQ(40, regions->end[1]);
+
+    ASSERT_EQ(1, regions_bed_query(regions, 0, 0, 20));
+    ASSERT_EQ(0, regions_bed_query(regions, 0, 0, 21));
+    ASSERT_EQ(0, regions_bed_query(regions, 0, 20, 30));
+    ASSERT_EQ(1, regions_bed_query(regions, 0, 30, 40));
+
+    ASSERT_EQ(1, regions_bed_map_offset(regions, 0, 0, &position));
+    ASSERT_EQ(0, position);
+    ASSERT_EQ(1, regions_bed_map_offset(regions, 0, 19, &position));
+    ASSERT_EQ(19, position);
+    ASSERT_EQ(1, regions_bed_map_offset(regions, 0, 20, &position));
+    ASSERT_EQ(30, position);
+    ASSERT_EQ(1, regions_bed_map_offset(regions, 0, 29, &position));
+    ASSERT_EQ(39, position);
+    ASSERT_EQ(0, regions_bed_map_offset(regions, 0, 30, &position));
+    ASSERT_EQ(1, regions_bed_map_offset(regions, 1, 0, &position));
+    ASSERT_EQ(5, position);
+
+    regions_bed_destroy(regions);
+    fclose(bed);
+    contigs_destroy(contigs);
+}
+
 int main(void) {
     printf("DWGSIM Unit Tests\n");
     printf("========================================\n");
@@ -89,6 +141,9 @@ int main(void) {
 
     TEST_SUITE("BGZF FASTQ writer");
     RUN_TEST(fastq_writer_thread_distribution);
+
+    TEST_SUITE("Regions BED");
+    RUN_TEST(regions_bed_half_open_boundaries);
 
     /* Add test suites here as they are created */
     /* TEST_SUITE("Position Calculation Tests"); */

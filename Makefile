@@ -30,9 +30,24 @@ HUMAN_REFERENCE_ARCHIVE ?= $(HUMAN_REFERENCE_DIR)/$(HUMAN_REFERENCE_BASENAME).fn
 HUMAN_REFERENCE_FASTA ?= $(HUMAN_REFERENCE_DIR)/$(HUMAN_REFERENCE_BASENAME).fna
 HUMAN_REFERENCE_URL ?= https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/001/405/GCF_000001405.40_GRCh38.p14/$(HUMAN_REFERENCE_BASENAME).fna.gz
 HUMAN_REFERENCE_MD5 ?= c30471567037b2b2389d43c908c653e1
+HUMAN_REGIONS_SOURCE_DIR ?= testdata/regions/upstream
+HUMAN_WES_SOURCE ?= $(HUMAN_REGIONS_SOURCE_DIR)/GRCh38_refseq_cds.bed.gz
+HUMAN_WES_SOURCE_URL ?= https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/genome-stratifications/v3.6/GRCh38@all/Functional/GRCh38_refseq_cds.bed.gz
+HUMAN_WES_SOURCE_MD5 ?= c27674ff0559893df02833e4e7b0e7ca
+HUMAN_BLACKLIST_SOURCE ?= $(HUMAN_REGIONS_SOURCE_DIR)/ENCFF356LFX.bed.gz
+HUMAN_BLACKLIST_SOURCE_URL ?= https://www.encodeproject.org/files/ENCFF356LFX/@@download/ENCFF356LFX.bed.gz
+HUMAN_BLACKLIST_SOURCE_MD5 ?= 393688b4f06c9ce26165d47433dd8c37
+HUMAN_ASSEMBLY_REPORT ?= $(HUMAN_REGIONS_SOURCE_DIR)/GCF_000001405.40_GRCh38.p14_assembly_report.txt
+HUMAN_ASSEMBLY_REPORT_URL ?= https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/001/405/GCF_000001405.40_GRCh38.p14/GCF_000001405.40_GRCh38.p14_assembly_report.txt
+HUMAN_ASSEMBLY_REPORT_MD5 ?= 21f3ac4aa8245a99eb874082051b9dde
+HUMAN_REGIONS_DIR ?= $(HUMAN_REFERENCE_DIR)/regions
+HUMAN_WES_BED ?= $(HUMAN_REGIONS_DIR)/grch38-p14-refseq-cds-padded.bed
+HUMAN_WGS_FILTERED_BED ?= $(HUMAN_REGIONS_DIR)/grch38-p14-without-encode-blacklist.bed
+HUMAN_WES_PADDING ?= 250
 HUMAN_SMOKE_DIR ?= build/human-reference-smoke
 HUMAN_SMOKE_READ_PAIRS ?= 100
 HUMAN_SMOKE_SEED ?= 13
+HUMAN_SMOKE_THREADS ?= 1
 DWGSIM_BIN ?= ./dwgsim
 TIME_BIN ?= /usr/bin/time
 BENCHMARK_REFERENCE ?= samtools/examples/ex1.fa
@@ -69,8 +84,9 @@ src/fastq_writer.o: src/fastq_writer.c src/fastq_writer.h samtools/bgzf.h
 
 all:$(PROG)
 
-.PHONY:all lib clean cleanlocal test test-unit test-integration test-bgzf clean-tests help
-.PHONY:download download-human-reference test-human-reference
+.PHONY:all lib clean cleanlocal test test-unit test-integration test-bgzf test-bed clean-tests help
+.PHONY:download download-human-reference download-human-regions prepare-human-regions samtools-program
+.PHONY: test-human-reference test-human-wgs test-human-wes test-human-wgs-filtered
 .PHONY:benchmark
 .PHONY:all-recur lib-recur clean-recur cleanlocal-recur install-recur
 
@@ -78,11 +94,16 @@ help:
 	@printf 'Usage: make <target> [VARIABLE=value]\n\n'
 	@printf 'Build and test targets:\n'
 	@printf '  %-26s %s\n' 'all' 'Build all DWGSIM executables (default).'
-	@printf '  %-26s %s\n' 'test' 'Run unit, integration, and BGZF output tests.'
+	@printf '  %-26s %s\n' 'test' 'Run unit, integration, BGZF, and BED tests.'
 	@printf '  %-26s %s\n' 'benchmark' 'Measure reads-only simulation throughput and resource use.'
 	@printf '  %-26s %s\n' 'test-bgzf' 'Test BGZF compatibility, modes, and thread determinism.'
-	@printf '  %-26s %s\n' 'download' 'Download and verify the full NCBI GRCh38.p14 reference.'
-	@printf '  %-26s %s\n' 'test-human-reference' 'Run the reads-only DWGSIM smoke test on full GRCh38.p14.'
+	@printf '  %-26s %s\n' 'test-bed' 'Test BED boundaries, headers, and validation errors.'
+	@printf '  %-26s %s\n' 'download' 'Download/verify GRCh38.p14 and pinned human BED sources.'
+	@printf '  %-26s %s\n' 'prepare-human-regions' 'Build RefSeq-name WES and blacklist-complement BEDs.'
+	@printf '  %-26s %s\n' 'test-human-reference' 'Run all full-reference WGS/WES smoke profiles.'
+	@printf '  %-26s %s\n' 'test-human-wgs' 'Smoke-test untargeted WGS on full GRCh38.p14.'
+	@printf '  %-26s %s\n' 'test-human-wes' 'Smoke-test padded GIAB RefSeq CDS targets.'
+	@printf '  %-26s %s\n' 'test-human-wgs-filtered' 'Smoke-test WGS excluding ENCODE ENCFF356LFX.'
 	@printf '  %-26s %s\n' 'clean' 'Remove compiled programs, objects, and regular test artifacts.'
 	@printf '  %-26s %s\n' 'help' 'Show this help.'
 	@printf '\nBenchmark settings:\n'
@@ -96,22 +117,74 @@ help:
 	@printf '\nHuman-reference settings:\n'
 	@printf '  %-26s %s\n' 'HUMAN_REFERENCE_DIR=...' 'Reference destination (default: $(HUMAN_REFERENCE_DIR)).'
 	@printf '  %-26s %s\n' 'HUMAN_SMOKE_READ_PAIRS=...' 'Read pairs to simulate (default: $(HUMAN_SMOKE_READ_PAIRS)).'
+	@printf '  %-26s %s\n' 'HUMAN_SMOKE_THREADS=...' 'Thread budget for each smoke profile (default: $(HUMAN_SMOKE_THREADS)).'
 	@printf '  %-26s %s\n' 'HUMAN_SMOKE_DIR=...' 'Smoke-test output directory (default: $(HUMAN_SMOKE_DIR)).'
+	@printf '  %-26s %s\n' 'HUMAN_WES_PADDING=...' 'Padding added around RefSeq CDS targets (default: $(HUMAN_WES_PADDING)).'
 
-download: download-human-reference
+download: download-human-reference download-human-regions
 
 download-human-reference:
 	CURL="$(CURL)" MD5SUM="$(MD5SUM)" /bin/bash scripts/download_human_reference.sh \
 		"$(HUMAN_REFERENCE_URL)" "$(HUMAN_REFERENCE_MD5)" \
 		"$(HUMAN_REFERENCE_ARCHIVE)" "$(HUMAN_REFERENCE_FASTA)"
 
-test-human-reference: all
+download-human-regions:
+	CURL="$(CURL)" MD5SUM="$(MD5SUM)" /bin/bash scripts/download_human_regions.sh \
+		"$(HUMAN_WES_SOURCE_URL)" "$(HUMAN_WES_SOURCE_MD5)" "$(HUMAN_WES_SOURCE)" \
+		"$(HUMAN_BLACKLIST_SOURCE_URL)" "$(HUMAN_BLACKLIST_SOURCE_MD5)" "$(HUMAN_BLACKLIST_SOURCE)" \
+		"$(HUMAN_ASSEMBLY_REPORT_URL)" "$(HUMAN_ASSEMBLY_REPORT_MD5)" "$(HUMAN_ASSEMBLY_REPORT)"
+
+samtools-program:
+	$(MAKE) -C samtools samtools
+
+prepare-human-regions: samtools-program download-human-reference download-human-regions
+	HUMAN_WES_PADDING="$(HUMAN_WES_PADDING)" \
+		/bin/bash scripts/prepare_human_regions.sh \
+		"$(HUMAN_REFERENCE_FASTA)" "./samtools/samtools" \
+		"$(HUMAN_ASSEMBLY_REPORT)" "$(HUMAN_WES_SOURCE)" "$(HUMAN_BLACKLIST_SOURCE)" \
+		"$(HUMAN_WES_BED)" "$(HUMAN_WGS_FILTERED_BED)"
+
+test-human-wgs: all
 	$(MAKE) --no-print-directory download-human-reference
 	DWGSIM_BIN="$(DWGSIM_BIN)" \
 		HUMAN_SMOKE_READ_PAIRS="$(HUMAN_SMOKE_READ_PAIRS)" \
 		HUMAN_SMOKE_SEED="$(HUMAN_SMOKE_SEED)" \
+		HUMAN_SMOKE_THREADS="$(HUMAN_SMOKE_THREADS)" \
 		/bin/bash scripts/smoke_test_human_reference.sh \
-		"$(HUMAN_REFERENCE_FASTA)" "$(HUMAN_SMOKE_DIR)"
+		"$(HUMAN_REFERENCE_FASTA)" "$(HUMAN_SMOKE_DIR)" wgs
+
+test-human-wes: all
+	$(MAKE) --no-print-directory prepare-human-regions
+	DWGSIM_BIN="$(DWGSIM_BIN)" \
+		HUMAN_SMOKE_READ_PAIRS="$(HUMAN_SMOKE_READ_PAIRS)" \
+		HUMAN_SMOKE_SEED="$(HUMAN_SMOKE_SEED)" \
+		HUMAN_SMOKE_THREADS="$(HUMAN_SMOKE_THREADS)" \
+		/bin/bash scripts/smoke_test_human_reference.sh \
+		"$(HUMAN_REFERENCE_FASTA)" "$(HUMAN_SMOKE_DIR)" wes "$(HUMAN_WES_BED)"
+
+test-human-wgs-filtered: all
+	$(MAKE) --no-print-directory prepare-human-regions
+	DWGSIM_BIN="$(DWGSIM_BIN)" \
+		HUMAN_SMOKE_READ_PAIRS="$(HUMAN_SMOKE_READ_PAIRS)" \
+		HUMAN_SMOKE_SEED="$(HUMAN_SMOKE_SEED)" \
+		HUMAN_SMOKE_THREADS="$(HUMAN_SMOKE_THREADS)" \
+		/bin/bash scripts/smoke_test_human_reference.sh \
+		"$(HUMAN_REFERENCE_FASTA)" "$(HUMAN_SMOKE_DIR)" wgs-filtered "$(HUMAN_WGS_FILTERED_BED)"
+
+test-human-reference: all
+	$(MAKE) --no-print-directory prepare-human-regions
+	DWGSIM_BIN="$(DWGSIM_BIN)" HUMAN_SMOKE_READ_PAIRS="$(HUMAN_SMOKE_READ_PAIRS)" \
+		HUMAN_SMOKE_SEED="$(HUMAN_SMOKE_SEED)" HUMAN_SMOKE_THREADS="$(HUMAN_SMOKE_THREADS)" \
+		/bin/bash scripts/smoke_test_human_reference.sh \
+		"$(HUMAN_REFERENCE_FASTA)" "$(HUMAN_SMOKE_DIR)" wgs
+	DWGSIM_BIN="$(DWGSIM_BIN)" HUMAN_SMOKE_READ_PAIRS="$(HUMAN_SMOKE_READ_PAIRS)" \
+		HUMAN_SMOKE_SEED="$(HUMAN_SMOKE_SEED)" HUMAN_SMOKE_THREADS="$(HUMAN_SMOKE_THREADS)" \
+		/bin/bash scripts/smoke_test_human_reference.sh \
+		"$(HUMAN_REFERENCE_FASTA)" "$(HUMAN_SMOKE_DIR)" wes "$(HUMAN_WES_BED)"
+	DWGSIM_BIN="$(DWGSIM_BIN)" HUMAN_SMOKE_READ_PAIRS="$(HUMAN_SMOKE_READ_PAIRS)" \
+		HUMAN_SMOKE_SEED="$(HUMAN_SMOKE_SEED)" HUMAN_SMOKE_THREADS="$(HUMAN_SMOKE_THREADS)" \
+		/bin/bash scripts/smoke_test_human_reference.sh \
+		"$(HUMAN_REFERENCE_FASTA)" "$(HUMAN_SMOKE_DIR)" wgs-filtered "$(HUMAN_WGS_FILTERED_BED)"
 
 benchmark: dwgsim
 	DWGSIM_BIN="$(DWGSIM_BIN)" \
@@ -167,7 +240,7 @@ dist:clean
 	rm -rv dwgsim-${PACKAGE_VERSION};
 
 # Run all tests
-test: test-unit test-integration test-bgzf
+test: test-unit test-integration test-bgzf test-bed
 
 # Integration tests
 test-integration: dwgsim
@@ -180,11 +253,15 @@ test-bgzf: dwgsim
 	DWGSIM_BIN="$(DWGSIM_BIN)" BGZIP_BIN="./samtools/bgzip" \
 		/bin/bash tests/test_bgzf_output.sh "$(BENCHMARK_REFERENCE)"
 
+# Regions BED parser and placement tests
+test-bed: dwgsim
+	DWGSIM_BIN="$(DWGSIM_BIN)" /bin/bash tests/test_regions_bed.sh
+
 # Unit test target
-TEST_OBJS = tests/test_main.o src/fastq_writer.o
+TEST_OBJS = tests/test_main.o src/fastq_writer.o src/regions_bed.o src/contigs.o
 TEST_PROG = tests/run_tests
 
-tests/test_main.o: tests/test_main.c tests/test_framework.h src/fastq_writer.h
+tests/test_main.o: tests/test_main.c tests/test_framework.h src/fastq_writer.h src/regions_bed.h src/contigs.h
 	$(CC) -c $(CFLAGS) $(DFLAGS) -I. -Isrc tests/test_main.c -o $@
 
 $(TEST_PROG): lib-recur $(TEST_OBJS)

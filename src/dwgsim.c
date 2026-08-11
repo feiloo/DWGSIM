@@ -532,7 +532,7 @@ void dwgsim_core(dwgsim_opt_t * opt)
           }
       }
       else {
-          if(0 == n_ref && opt->C < 0) {
+          if(0 == n_ref && opt->C < 0 && NULL == regions_bed) {
               n_pairs = opt->N - n_sim;
           }
           else {
@@ -554,9 +554,9 @@ void dwgsim_core(dwgsim_opt_t * opt)
                   int num_n = 0;
                   for(i=0;i<regions_bed->n;i++) {           
                       if(contig_i == regions_bed->contig[i]) {                    
-                          int m;                                                                            
-                          for(m=regions_bed->start[i];m<=regions_bed->end[i];m++) {                                               
-                              switch (seq.s[m-1]) {                                                                                                             
+                          int m;
+                          for(m=regions_bed->start[i];m<regions_bed->end[i];m++) {
+                              switch (seq.s[m]) {
                                 case 'a':
                                 case 'A':
                                 case 'c':
@@ -581,7 +581,13 @@ void dwgsim_core(dwgsim_opt_t * opt)
               }
               if(0 < opt->N) {
                   // based on -N
-                  n_pairs = (uint64_t)((long double)l / tot_len * opt->N + 0.5);
+                  if(NULL != regions_bed &&
+                     contig_i == regions_bed->contig[regions_bed->n-1]) {
+                      n_pairs = opt->N - n_sim;
+                  }
+                  else {
+                      n_pairs = (uint64_t)((long double)l / tot_len * opt->N + 0.5);
+                  }
                   if(opt->N - n_sim < n_pairs) n_pairs = opt->N - n_sim; // make sure we don't simulate too many reads
               }
               else {
@@ -639,7 +645,7 @@ void dwgsim_core(dwgsim_opt_t * opt)
                           (unsigned long long int)ctr);
               }
               double ran;
-              int d, pos, s[2], strand[2];
+              int d = 0, pos = -1, s[2], strand[2];
               int n_sub[2], n_indel[2], n_err[2], ext_coor[2]={0,0}, j, k;
               int n_sub_first[2], n_indel_first[2], n_err_first[2]; // need this for SOLID data
               int c1, c2, c;
@@ -692,17 +698,17 @@ void dwgsim_core(dwgsim_opt_t * opt)
                           int64_t range = (int64_t)l - d + 1;
                           if (range <= 0) continue;
                           pos = (int)(range * drand48());
-                          // convert in the bed file
-                          for(i=0;i<regions_bed->n;i++) { // TODO: regions are in sorted order... so optimize
-                              if(contig_i == regions_bed->contig[i]) {
-                                  j = regions_bed->end[i] - regions_bed->start[i];  // BED half-open
-                                  if(pos < j) {
-                                      pos = regions_bed->start[i] + pos - 1; // zero-based
-                                      break;
-                                  }
-                                  else {
-                                      pos -= j;
-                                  }
+                          // Convert a zero-based offset in the concatenated BED
+                          // intervals to a zero-based reference position.
+                          {
+                              uint32_t mapped_pos;
+                              if(0 == regions_bed_map_offset(regions_bed, contig_i,
+                                                            (uint64_t)pos,
+                                                            &mapped_pos)) {
+                                  pos = -1;
+                              }
+                              else {
+                                  pos = (int)mapped_pos;
                               }
                           }
                       } while (pos < 0 

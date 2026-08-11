@@ -2,16 +2,19 @@
 
 set -euo pipefail
 
-if [[ $# -ne 2 ]]; then
-    echo "Usage: $0 <reference.fasta> <output-directory>" >&2
+if [[ $# -lt 3 || $# -gt 4 ]]; then
+    echo "Usage: $0 <reference.fasta> <output-directory> <wgs|wes|wgs-filtered> [regions.bed]" >&2
     exit 2
 fi
 
 reference_fasta=$1
 output_directory=$2
+profile=$3
+regions_bed=${4:-}
 dwgsim_bin=${DWGSIM_BIN:-./dwgsim}
 read_pairs=${HUMAN_SMOKE_READ_PAIRS:-100}
 random_seed=${HUMAN_SMOKE_SEED:-13}
+threads=${HUMAN_SMOKE_THREADS:-1}
 
 for dependency in "$dwgsim_bin" gzip awk; do
     if ! command -v "$dependency" >/dev/null 2>&1; then
@@ -29,18 +32,63 @@ if [[ ! $read_pairs =~ ^[1-9][0-9]*$ ]]; then
     echo "test-human-reference: HUMAN_SMOKE_READ_PAIRS must be a positive integer" >&2
     exit 2
 fi
+if [[ ! $threads =~ ^[1-9][0-9]*$ ]]; then
+    echo "test-human-reference: HUMAN_SMOKE_THREADS must be a positive integer" >&2
+    exit 2
+fi
 
-mkdir -p "$output_directory"
-output_prefix=${output_directory}/grch38-p14-smoke
+bed_options=()
+case $profile in
+    wgs)
+        description="whole-genome"
+        if [[ -n $regions_bed ]]; then
+            echo "test-human-reference: wgs does not accept a BED argument" >&2
+            exit 2
+        fi
+        ;;
+    wes)
+        description="whole-exome (GIAB RefSeq CDS plus configured padding)"
+        bed_options=(-x "$regions_bed")
+        ;;
+    wgs-filtered)
+        description="whole-genome excluding ENCODE ENCFF356LFX"
+        bed_options=(-x "$regions_bed")
+        ;;
+    *)
+        echo "test-human-reference: unknown profile: $profile" >&2
+        exit 2
+        ;;
+esac
 
-echo "Simulating $read_pairs read pairs against the complete GRCh38.p14 reference..."
-"$dwgsim_bin" \
+if [[ $profile != wgs && ! -s $regions_bed ]]; then
+    echo "test-human-reference: regions BED not found for $profile: $regions_bed" >&2
+    exit 1
+fi
+
+case_directory=${output_directory}/${profile}
+mkdir -p "$case_directory"
+output_prefix=${case_directory}/grch38-p14-${profile}-smoke
+dwgsim_log=${case_directory}/dwgsim.log
+
+echo "Simulating $read_pairs read pairs for $description against complete GRCh38.p14..."
+if ! "$dwgsim_bin" \
     -z "$random_seed" \
+    -t "$threads" \
     -N "$read_pairs" \
+    -1 100 \
+    -2 100 \
+    -d 350 \
+    -s 50 \
+    -y 0 \
     -r 0 \
     -M 1 \
+    "${bed_options[@]}" \
     "$reference_fasta" \
-    "$output_prefix"
+    "$output_prefix" >"$dwgsim_log" 2>&1; then
+    echo "test-human-reference: DWGSIM failed for $profile; last log lines:" >&2
+    tail -n 40 "$dwgsim_log" >&2
+    exit 1
+fi
 
 bfast_fastq=${output_prefix}.bfast.fastq.gz
 bwa_read1_fastq=${output_prefix}.bwa.read1.fastq.gz
@@ -70,4 +118,11 @@ check_fastq_lines "$bfast_fastq" "$((read_pairs * 8))"
 check_fastq_lines "$bwa_read1_fastq" "$((read_pairs * 4))"
 check_fastq_lines "$bwa_read2_fastq" "$((read_pairs * 4))"
 
-echo "GRCh38 smoke test passed. Output: $output_directory"
+random_headers=$(gzip --decompress --stdout "$bfast_fastq" |
+    awk 'NR % 4 == 1 && /^@rand_/ { count++ } END { print count + 0 }')
+if [[ $random_headers -ne 0 ]]; then
+    echo "test-human-reference: $profile generated $random_headers off-reference random reads" >&2
+    exit 1
+fi
+
+echo "GRCh38 $profile smoke test passed. Output: $case_directory"

@@ -1,6 +1,11 @@
 #ifndef REGIONS_BED_H
 #define REGIONS_BED_H
 
+#include <stdint.h>
+#include <stdio.h>
+
+#include "contigs.h"
+
 typedef struct {
     uint32_t *contig;
     uint32_t *start;
@@ -17,5 +22,9 @@ regions_bed_destroy(regions_bed_txt *r);
 
 int32_t 
 regions_bed_query(regions_bed_txt *r, uint32_t contig, uint32_t start, uint32_t end); 
+
+int32_t
+regions_bed_map_offset(regions_bed_txt *r, uint32_t contig, uint64_t offset,
+                       uint32_t *position);
 
 #endif
