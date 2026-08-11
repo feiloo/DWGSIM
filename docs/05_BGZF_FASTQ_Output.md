@@ -25,7 +25,7 @@ stream_threads[i] = 1 + helpers / S + (i < helpers % S)
 
 The leading 1 represents the shared caller for a stream; only the remainder creates helper threads. This keeps the process-wide helper count at `T - 1`. With paired BWA output, for example, `-t 4` allocates two helpers to one output and one helper to the other instead of creating eight compression workers.
 
-The optimized WGS profile instead treats `-t` as its generation/compression worker count. Every worker generates and directly compresses deterministic paired tasks; two lightweight ordered appender threads write R1 and R2. Task boundaries determine BGZF boundaries, so scheduling and worker count cannot alter compressed bytes.
+The optimized WGS profiles instead treat `-t` as their generation/compression worker count. Every worker generates and directly compresses deterministic paired tasks. Two lightweight ordered appenders write mutation-free R1/R2; matched mode uses four appenders for normal R1/R2 and tumor R1/R2. Task boundaries determine BGZF boundaries, so scheduling and worker count cannot alter compressed bytes.
 
 ## Compatibility and tradeoffs
 
@@ -46,9 +46,10 @@ Compression work is assigned by BGZF block index and completed blocks are writte
 
 ## Deterministic generation path
 
-The first deterministic generation milestone is implemented for indexed,
-mutation-free, random-read-free, reads-only BWA paired WGS. It establishes a
-new canonical read order and produces byte-identical paired BGZF files across
-thread counts and repeated runs. Extending the architecture to BED and
-mutation modes, and validating real 64/128-core scaling, remain open. See
-[Deterministic parallel generation design and status](07_Deterministic_Parallel_Generation.md).
+Deterministic generation is implemented for indexed mutation-free BWA paired
+WGS and for generated germline/somatic matched normal/tumor WGS. Both produce
+byte-identical BGZF files across thread counts and repeated runs. Extending
+the architecture to BED and supplied-mutation modes, and validating physical
+64/128-core scaling, remain open. See [Deterministic parallel generation
+design and status](07_Deterministic_Parallel_Generation.md) and [Matched
+normal/tumor simulation](08_Matched_Normal_Tumor.md).

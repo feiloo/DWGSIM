@@ -1158,6 +1158,10 @@ int main(int argc, char *argv[])
   mutseq_init_bounds();
 
   opt = dwgsim_opt_init();
+  if(NULL == opt) {
+      fprintf(stderr, "Error: could not allocate command-line options\n");
+      return 1;
+  }
 
   char fn_fai[1024]="\0";
   char fn_tmp[1024]="\0";
@@ -1166,6 +1170,14 @@ int main(int argc, char *argv[])
       return dwgsim_opt_usage(opt);
   }
 
+  if(opt->matched &&
+     !dwgsim_parallel_wgs_supported(opt, argv[optind])) {
+      fprintf(stderr,
+              "Error: matched mode requires a readable indexed FASTA "
+              "(<reference>.fai) and the supported paired-WGS profile\n");
+      dwgsim_opt_destroy(opt);
+      return 1;
+  }
   if(dwgsim_parallel_wgs_supported(opt, argv[optind])) {
       exit_status = dwgsim_parallel_wgs_run(opt, argv[optind],
                                             argv[optind + 1]);

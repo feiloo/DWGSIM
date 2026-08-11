@@ -6,3 +6,4 @@
 * [BGZF FASTQ output](05_BGZF_FASTQ_Output.md)
 * [Human reference smoke tests and BED provenance](06_Human_Reference_Smoke_Tests.md)
 * [Deterministic parallel generation design and status](07_Deterministic_Parallel_Generation.md)
+* [Matched normal/tumor simulation](08_Matched_Normal_Tumor.md)

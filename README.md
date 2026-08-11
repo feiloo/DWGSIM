@@ -28,9 +28,57 @@ Use `-t` to set the generation/compression worker count:
 ./dwgsim -t 4 reference.fa output
 ```
 
-By default, DWGSIM uses all online logical CPUs. The optimized path activates for an indexed FASTA and mutation-free, random-read-free, reads-only BWA paired WGS (`-r 0 -y 0 -M 1 -o 1`). It loads indexed contigs in parallel, generates fixed 8,192-pair tasks with schedule-independent RNG, compresses each task locally, and commits R1/R2 chunks in canonical order. The complete FASTQ files are byte-identical at `-t 1`, `-t 2`, `-t 8`, and `-t 128`, including repeated runs, for the same build, seed, inputs, options, and compression level. A successful run publishes both FASTQs and `<prefix>.dwgsim.complete`; partial staging files are not published.
+By default, DWGSIM uses all online logical CPUs. There are two deterministic
+optimized WGS profiles:
 
-Modes outside that first optimized profile use the existing simulator and its parallel BGZF writer. BED-restricted WGS/WES, mutations, random reads, BFAST/combined output, inner-distance pairs, and non-Illumina modes are compatibility fallbacks for now. Build a missing FASTA index with `samtools faidx reference.fa`. See [the BGZF implementation notes](docs/05_BGZF_FASTQ_Output.md) and [deterministic parallel generation design/status](docs/07_Deterministic_Parallel_Generation.md).
+- mutation-free, random-read-free, reads-only BWA pairs
+  (`-r 0 -y 0 -M 1 -o 1`); and
+- generated germline plus tumor-only somatic variants in matched normal/tumor
+  mode (`--matched`).
+
+Both load indexed contigs in parallel, generate fixed 8,192-pair tasks with
+schedule-independent RNG, compress task-local BGZF chunks, and commit streams
+in canonical order. The mutation-free profile commits R1/R2; matched mode
+commits normal R1/R2 and tumor R1/R2 together. Complete FASTQs are
+byte-identical across worker counts and repeated runs for the same build,
+seed, reference/index, non-thread options, and compression level. Successful
+runs publish a completion manifest only after every required file is present.
+
+BED-restricted WGS/WES, supplied mutation files, random reads,
+BFAST/combined output, inner-distance pairs, and non-Illumina modes still use
+the compatibility simulator. Build a missing FASTA index with
+`samtools faidx reference.fa`. See [the BGZF implementation
+notes](docs/05_BGZF_FASTQ_Output.md), [deterministic parallel generation
+design/status](docs/07_Deterministic_Parallel_Generation.md), and
+[matched normal/tumor simulation](docs/08_Matched_Normal_Tumor.md).
+
+## Matched normal/tumor WGS
+
+`--matched` generates independent paired libraries that share one phased
+germline truth set while only the tumor can carry somatic events:
+
+```sh
+samtools faidx reference.fa
+./dwgsim --matched -N 1000000 -z 13 \
+  -r 0.001 --somatic-rate 0.00001 --tumor-vaf 0.25 \
+  reference.fa matched
+```
+
+`-N` is the pair count for each sample. Different library sizes can be
+requested with `--normal-pairs` and `--tumor-pairs`. Output is:
+
+- `matched.normal.bwa.read1.fastq.gz` and
+  `matched.normal.bwa.read2.fastq.gz`;
+- `matched.tumor.bwa.read1.fastq.gz` and
+  `matched.tumor.bwa.read2.fastq.gz`;
+- `matched.germline.vcf` and `matched.somatic.vcf`; and
+- `matched.matched.complete`.
+
+Both mates of a fragment use the same haplotype and tumor-clone state.
+`--tumor-vaf` is the expected diploid somatic allele fraction (0 to
+0.5); it does not model copy number, arbitrary tumor purity, or multiple
+clones. The exact model, VCF representation, limitations, and validation are
+documented in [Matched normal/tumor simulation](docs/08_Matched_Normal_Tumor.md).
 
 ## Performance benchmark
 

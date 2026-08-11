@@ -43,6 +43,11 @@ typedef struct {
     int32_t seed;
     int32_t compression_threads;
     int32_t compression_level;
+    int32_t matched;
+    double somatic_rate;
+    double tumor_vaf;
+    int64_t normal_pairs;
+    int64_t tumor_pairs;
     char *fixed_quality;
     double quality_std;
     char *fn_muts_input;

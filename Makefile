@@ -94,7 +94,7 @@ src/parallel_wgs.o: src/parallel_wgs.c src/parallel_wgs.h src/dwgsim_opt.h samto
 
 all:$(PROG)
 
-.PHONY:all lib clean cleanlocal test test-unit test-integration test-bgzf test-parallel-wgs test-bed clean-tests help
+.PHONY:all lib clean cleanlocal test test-unit test-integration test-bgzf test-parallel-wgs test-matched-wgs test-bed clean-tests help
 .PHONY:download download-human-reference download-human-regions prepare-human-regions samtools-program
 .PHONY: test-human-reference test-human-wgs test-human-wes test-human-wgs-filtered
 .PHONY:benchmark benchmark-wgs
@@ -104,11 +104,12 @@ help:
 	@printf 'Usage: make <target> [VARIABLE=value]\n\n'
 	@printf 'Build and test targets:\n'
 	@printf '  %-26s %s\n' 'all' 'Build all DWGSIM executables (default).'
-	@printf '  %-26s %s\n' 'test' 'Run unit, integration, BGZF, parallel-WGS, and BED tests.'
+	@printf '  %-26s %s\n' 'test' 'Run unit, integration, BGZF, parallel/matched-WGS, and BED tests.'
 	@printf '  %-26s %s\n' 'benchmark' 'Measure reads-only simulation throughput and resource use.'
 	@printf '  %-26s %s\n' 'benchmark-wgs' 'Benchmark full GRCh38 WGS and estimate 100x generation.'
 	@printf '  %-26s %s\n' 'test-bgzf' 'Test BGZF compatibility, modes, and thread determinism.'
 	@printf '  %-26s %s\n' 'test-parallel-wgs' 'Test deterministic paired WGS across worker counts.'
+	@printf '  %-26s %s\n' 'test-matched-wgs' 'Test deterministic matched normal/tumor WGS and truth.'
 	@printf '  %-26s %s\n' 'test-bed' 'Test BED boundaries, headers, and validation errors.'
 	@printf '  %-26s %s\n' 'download' 'Download/verify GRCh38.p14 and pinned human BED sources.'
 	@printf '  %-26s %s\n' 'prepare-human-regions' 'Build RefSeq-name WES and blacklist-complement BEDs.'
@@ -268,7 +269,7 @@ dist:clean
 	rm -rv dwgsim-${PACKAGE_VERSION};
 
 # Run all tests
-test: test-unit test-integration test-bgzf test-parallel-wgs test-bed
+test: test-unit test-integration test-bgzf test-parallel-wgs test-matched-wgs test-bed
 
 # Integration tests
 test-integration: dwgsim
@@ -286,6 +287,12 @@ test-parallel-wgs: dwgsim samtools-program
 	$(MAKE) -C samtools bgzip
 	DWGSIM_BIN="$(DWGSIM_BIN)" SAMTOOLS_BIN="./samtools/samtools" BGZIP_BIN="./samtools/bgzip" \
 		/bin/bash tests/test_parallel_wgs.sh "$(BENCHMARK_REFERENCE)"
+
+# Sparse germline/somatic matched simulation and four-stream determinism tests
+test-matched-wgs: dwgsim samtools-program
+	$(MAKE) -C samtools bgzip
+	DWGSIM_BIN="$(DWGSIM_BIN)" SAMTOOLS_BIN="./samtools/samtools" BGZIP_BIN="./samtools/bgzip" \
+		/bin/bash tests/test_matched_wgs.sh "$(BENCHMARK_REFERENCE)"
 
 # Regions BED parser and placement tests
 test-bed: dwgsim

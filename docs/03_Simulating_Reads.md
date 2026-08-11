@@ -3,6 +3,7 @@
 <!---toc start-->
   * [Overview](#overview)
   * [Targeted reads and BED files](#targeted-reads-and-bed-files)
+  * [Matched normal and tumor WGS](#matched-normal-and-tumor-wgs)
   * [Error rates explained](#error-rates-explained)
   * [Read names explained](#read-names-explained)
   * [Mate pair or paired end modes](#mate-pair-or-paired-end-modes)
@@ -45,8 +46,33 @@ The following output will be created:
 
 Notes:
 
-- the longest supported insertion is 255bp
+- matched mode limits generated insertion/deletion events to 1,048,576 bases
 - The `-H` mode will simulate a haploid genome, whereas the default is to simulate a diploid genome. 
+
+## Matched normal and tumor WGS
+
+Use `--matched` for a true matched-sample model instead of the legacy
+`-F` haplotype-sampling bias:
+
+```console
+samtools faidx reference.fa
+dwgsim --matched -N 1000000 -z 13 -r 0.001 \
+  --somatic-rate 0.00001 --tumor-vaf 0.25 reference.fa matched
+```
+
+The command emits four paired-end BGZF FASTQs, phased germline and somatic
+truth VCFs, and `matched.matched.complete`. `-N` applies to each
+sample; `--normal-pairs` and `--tumor-pairs` allow unequal
+libraries. Matched read names add `normal_` or `tumor_` before
+the contig field. The remaining fields and `/1`/`/2` pairing rules are
+unchanged.
+
+This optimized profile currently requires indexed, untargeted, paired
+Illumina WGS with outer distance and BWA per-end output. It does not accept
+`-C`, BED regions, supplied mutation files, random reads, haploid mode,
+amplicon mode, or BFAST output. Unsupported combinations fail explicitly.
+See [Matched normal/tumor simulation](08_Matched_Normal_Tumor.md) for the
+biological model and exact output contract.
 
 ## Targeted reads and BED files
 
@@ -181,9 +207,9 @@ Three FASTQ files are produced, for use with BFAST (interleaved FASTQ) and BWA (
 
 FASTQ output uses gzip-compatible BGZF compression at level 4 by default. Ordinary gzip readers continue to work; BGZF-aware tools can also process the independent compressed blocks. Use `-l INT` to select level 1-9; level 1 favors speed while level 4 is the default size/runtime balance.
 
-Use `-t INT` to set the generation/compression worker count. The default is the number of online logical CPUs detected at startup. An indexed, mutation-free, random-read-free, reads-only BWA paired WGS run (`-r 0 -y 0 -M 1 -o 1`) uses the deterministic parallel generator. Its fixed tasks, task-local BGZF chunks, and ordered paired appenders make both complete FASTQs byte-identical across worker counts and repeated runs for identical non-thread inputs. The path writes `<prefix>.dwgsim.complete` only after both mate files are published.
+Use `-t INT` to set the generation/compression worker count. The default is the number of online logical CPUs detected at startup. Indexed mutation-free BWA WGS and indexed generated-variant `--matched` WGS use the deterministic parallel generator. Fixed tasks, task-local BGZF chunks, and ordered appenders make all complete FASTQs byte-identical across worker counts and repeated runs for identical non-thread inputs. Mutation-free mode publishes `<prefix>.dwgsim.complete`; matched mode publishes `<prefix>.matched.complete` after four FASTQs and two truth VCFs are present.
 
-Other modes retain the legacy simulator. In that path, `-t` is distributed across BGZF helpers while read simulation remains serial. BED-restricted WGS/WES, mutation generation/input/output, random reads, BFAST/combined output, inner-distance pairs, and non-Illumina data currently use this fallback.
+Other modes retain the legacy simulator. In that path, `-t` is distributed across BGZF helpers while read simulation remains serial. BED-restricted WGS/WES, single-sample mutation generation, mutation input, random reads, BFAST/combined output, inner-distance pairs, and non-Illumina data currently use this fallback.
 
 The implementation and validation strategy are documented in [BGZF FASTQ output](05_BGZF_FASTQ_Output.md) and [Deterministic parallel generation](07_Deterministic_Parallel_Generation.md).
 

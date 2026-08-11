@@ -29,6 +29,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <getopt.h>
 #include <stdint.h>
 #include <ctype.h>
 #include <string.h>
@@ -55,6 +56,7 @@ dwgsim_opt_t* dwgsim_opt_init()
 {
   dwgsim_opt_t *opt;
   opt = calloc(1, sizeof(dwgsim_opt_t));
+  if(NULL == opt) return NULL;
   opt->e[0].start = opt->e[0].end = opt->e[1].start = opt->e[1].end = 0.02;
   opt->e[0].by = opt->e[1].by = 0;
   opt->is_inner = 0;
@@ -79,6 +81,11 @@ dwgsim_opt_t* dwgsim_opt_init()
   opt->seed = -1;
   opt->compression_threads = dwgsim_online_cpu_count();
   opt->compression_level = 4;
+  opt->matched = 0;
+  opt->somatic_rate = 0.00001;
+  opt->tumor_vaf = 0.5;
+  opt->normal_pairs = -1;
+  opt->tumor_pairs = -1;
   opt->fixed_quality = NULL;
   opt->quality_std = 2.0;
   opt->fn_muts_input = NULL;
@@ -125,7 +132,7 @@ int dwgsim_opt_usage(dwgsim_opt_t *opt)
   fprintf(stderr, "         -1 INT        length of the first read [%d]\n", opt->length[0]);
   fprintf(stderr, "         -2 INT        length of the second read [%d]\n", opt->length[1]);
   fprintf(stderr, "         -r FLOAT      rate of mutations [%.4f]\n", opt->mut_rate);
-  fprintf(stderr, "         -F FLOAT      frequency of given mutation to simulate low fequency somatic mutations [%.4f]\n", opt->mut_freq);
+  fprintf(stderr, "         -F FLOAT      legacy haplotype sampling bias (not a matched tumor model) [%.4f]\n", opt->mut_freq);
   fprintf(stderr, "                           NB: freqeuncy F refers to the first strand of mutation, therefore mutations \n"); 
   fprintf(stderr, "                           on the second strand occur with a frequency of 1-F \n");
   fprintf(stderr, "         -R FLOAT      fraction of mutations that are indels [%.2f]\n", opt->indel_frac);
@@ -151,6 +158,15 @@ int dwgsim_opt_usage(dwgsim_opt_t *opt)
   fprintf(stderr, "         -z INT        random seed (-1 uses the current time) [%d]\n", opt->seed);
   fprintf(stderr, "         -t INT        total worker threads (generation and compression where supported) [%d]\n", opt->compression_threads);
   fprintf(stderr, "         -l INT        BGZF compression level (1 is fastest; 4 is the default balance) [%d]\n", opt->compression_level);
+  fprintf(stderr, "         --matched     generate matched NORMAL/TUMOR paired FASTQs and truth VCFs [%s]\n", __IS_TRUE(opt->matched));
+  fprintf(stderr, "         --somatic-rate FLOAT\n");
+  fprintf(stderr, "                       tumor-only somatic event rate [%.6g]\n", opt->somatic_rate);
+  fprintf(stderr, "         --tumor-vaf FLOAT\n");
+  fprintf(stderr, "                       expected diploid somatic VAF, 0 through 0.5 [%.3f]\n", opt->tumor_vaf);
+  fprintf(stderr, "         --normal-pairs INT\n");
+  fprintf(stderr, "                       normal read pairs (otherwise use -N) [%lld]\n", (signed long long)opt->normal_pairs);
+  fprintf(stderr, "         --tumor-pairs INT\n");
+  fprintf(stderr, "                       tumor read pairs (otherwise use -N) [%lld]\n", (signed long long)opt->tumor_pairs);
   fprintf(stderr, "         -M            output files to generate [%d]:\n", opt->output_type);
   fprintf(stderr, "                           0: both reads and mutation files\n");
   fprintf(stderr, "                           1: reads only\n");
@@ -179,15 +195,16 @@ int dwgsim_opt_usage(dwgsim_opt_t *opt)
 
 static void get_error_rate(const char *str, error_t *e)
 {
-  int32_t i;
+  size_t i;
+  size_t length = strlen(str);
 
   e->start = atof(str);
-  for(i=0;i<strlen(str);i++) {
+  for(i=0;i<length;i++) {
       if(',' == str[i] || '-' == str[i]) {
           break;
       }
   }
-  if(i<strlen(str)-1) {
+  if(i + 1 < length) {
       i++;
       e->end = atof(str+i);
   }
@@ -222,11 +239,32 @@ dwgsim_atoi(char *optarg, char flag, int32_t neg_ok)
 int32_t
 dwgsim_opt_parse(dwgsim_opt_t *opt, int argc, char *argv[]) 
 {
+  enum {
+      OPT_MATCHED = 1000,
+      OPT_SOMATIC_RATE,
+      OPT_TUMOR_VAF,
+      OPT_NORMAL_PAIRS,
+      OPT_TUMOR_PAIRS
+  };
+  static const struct option long_options[] = {
+      {"matched", no_argument, NULL, OPT_MATCHED},
+      {"somatic-rate", required_argument, NULL, OPT_SOMATIC_RATE},
+      {"tumor-vaf", required_argument, NULL, OPT_TUMOR_VAF},
+      {"normal-pairs", required_argument, NULL, OPT_NORMAL_PAIRS},
+      {"tumor-pairs", required_argument, NULL, OPT_TUMOR_PAIRS},
+      {NULL, 0, NULL, 0}
+  };
   int32_t i;
   int c;
   int muts_input_type = 0;
+  int random_reads_explicit = 0;
+  int reads_output_explicit = 0;
+  int matched_only_option = 0;
+  int legacy_mut_freq_explicit = 0;
   
-  while ((c = getopt(argc, argv, "id:s:N:C:1:2:e:E:r:F:R:X:I:c:S:A:n:y:BHf:z:t:l:M:m:b:v:x:P:q:Q:o:ah")) >= 0) {
+  while ((c = getopt_long(argc, argv,
+                          "id:s:N:C:1:2:e:E:r:F:R:X:I:c:S:A:n:y:BHf:z:t:l:M:m:b:v:x:P:q:Q:o:ah",
+                          long_options, NULL)) >= 0) {
       switch (c) {
         case 'i': opt->is_inner = 1; break;
         case 'd': opt->dist = dwgsim_atoi(optarg, 'd', 0); break;
@@ -238,7 +276,10 @@ dwgsim_opt_parse(dwgsim_opt_t *opt, int argc, char *argv[])
         case 'e': get_error_rate(optarg, &opt->e[0]); break;
         case 'E': get_error_rate(optarg, &opt->e[1]); break;
         case 'r': opt->mut_rate = atof(optarg); break;
-        case 'F': opt->mut_freq = atof(optarg); break;
+        case 'F':
+                  opt->mut_freq = atof(optarg);
+                  legacy_mut_freq_explicit = 1;
+                  break;
         case 'R': opt->indel_frac = atof(optarg); break;
         case 'X': opt->indel_extend = atof(optarg); break;
         case 'I': opt->indel_min = dwgsim_atoi(optarg, 'I', 0); break;
@@ -246,7 +287,7 @@ dwgsim_opt_parse(dwgsim_opt_t *opt, int argc, char *argv[])
         case 'S': opt->strandedness = dwgsim_atoi(optarg, 'S', 0); break;
         case 'A': opt->read_one_strand = dwgsim_atoi(optarg, 'A', 0); break;
         case 'n': opt->max_n = dwgsim_atoi(optarg, 'n', 0); break;
-        case 'y': opt->rand_read = atof(optarg); break;
+        case 'y': opt->rand_read = atof(optarg); random_reads_explicit = 1; break;
         case 'f':
                   if(NULL != opt->flow_order) free(opt->flow_order);
                   opt->flow_order = (int8_t*)strdup(optarg);
@@ -317,17 +358,62 @@ dwgsim_opt_parse(dwgsim_opt_t *opt, int argc, char *argv[])
                   }
                   break;
         case 'Q': opt->quality_std = atof(optarg); break;
-        case 'o': opt->reads_output_type = atoi(optarg); break;
+        case 'o': opt->reads_output_type = atoi(optarg); reads_output_explicit = 1; break;
         case 'a': opt->amplicons = 1; break;
+        case OPT_MATCHED: opt->matched = 1; break;
+        case OPT_SOMATIC_RATE:
+                  opt->somatic_rate = atof(optarg);
+                  matched_only_option = 1;
+                  break;
+        case OPT_TUMOR_VAF:
+                  opt->tumor_vaf = atof(optarg);
+                  matched_only_option = 1;
+                  break;
+        case OPT_NORMAL_PAIRS:
+                  opt->normal_pairs = dwgsim_atoi(optarg, 'N', 0);
+                  opt->C = -1;
+                  matched_only_option = 1;
+                  break;
+        case OPT_TUMOR_PAIRS:
+                  opt->tumor_pairs = dwgsim_atoi(optarg, 'N', 0);
+                  opt->C = -1;
+                  matched_only_option = 1;
+                  break;
         default: fprintf(stderr, "Unrecognized option: -%c\n", c); return 0;
       }
   }
   if (argc - optind < 2) return 0;
+  if(!opt->matched && matched_only_option) {
+      fprintf(stderr,
+              "Error: --somatic-rate, --tumor-vaf, --normal-pairs, and --tumor-pairs require --matched\n");
+      return 0;
+  }
+  if(opt->matched && legacy_mut_freq_explicit) {
+      fprintf(stderr,
+              "Error: legacy -F is not a matched tumor model; use --tumor-vaf\n");
+      return 0;
+  }
 
   __check_option(opt->is_inner, 0, 1, "-i");
   __check_option(opt->dist, 0, INT32_MAX, "-d");
   __check_option(opt->std_dev, 0, INT32_MAX, "-s");
-  if(opt->N < 0 && opt->C < 0) {
+  if(opt->matched) {
+      if(0 < opt->N) {
+          if(opt->normal_pairs < 0) opt->normal_pairs = opt->N;
+          if(opt->tumor_pairs < 0) opt->tumor_pairs = opt->N;
+      }
+      if(opt->normal_pairs <= 0 || opt->tumor_pairs <= 0) {
+          fprintf(stderr, "Error: matched mode requires -N, or both --normal-pairs and --tumor-pairs\n");
+          return 0;
+      }
+      if(opt->C >= 0) {
+          fprintf(stderr, "Error: coverage-driven -C is not supported in matched mode; use -N\n");
+          return 0;
+      }
+      if(!random_reads_explicit) opt->rand_read = 0.0;
+      if(!reads_output_explicit) opt->reads_output_type = READS_OUTPUT_TYPE_BWA;
+  }
+  else if(opt->N < 0 && opt->C < 0) {
       fprintf(stderr, "Must use one of -N or -C");
       return 0;
   }
@@ -363,6 +449,8 @@ dwgsim_opt_parse(dwgsim_opt_t *opt, int argc, char *argv[])
       }
   }
   __check_option(opt->mut_rate, 0, 1.0, "-r");
+  __check_option(opt->somatic_rate, 0, 1.0, "--somatic-rate");
+  __check_option(opt->tumor_vaf, 0, 0.5, "--tumor-vaf");
   __check_option(opt->indel_frac, 0, 1.0, "-R");
   __check_option(opt->indel_extend, 0, 1.0, "-X");
   __check_option(opt->indel_min, 1, INT32_MAX, "-I");
@@ -379,6 +467,30 @@ dwgsim_opt_parse(dwgsim_opt_t *opt, int argc, char *argv[])
   __check_option(opt->is_hap, 0, 1, "-H");
   __check_option(opt->compression_threads, 1, INT32_MAX, "-t");
   __check_option(opt->compression_level, 1, 9, "-l");
+
+  if(opt->matched) {
+      if(!isfinite(opt->mut_rate) || !isfinite(opt->somatic_rate) ||
+         !isfinite(opt->tumor_vaf) || !isfinite(opt->indel_frac) ||
+         !isfinite(opt->indel_extend)) {
+          fprintf(stderr, "Error: matched mutation rates and fractions must be finite numbers\n");
+          return 0;
+      }
+      if(ILLUMINA != opt->data_type || opt->length[1] <= 0 ||
+         opt->is_inner || opt->amplicons || opt->is_hap ||
+         (0 != opt->strandedness && 2 != opt->strandedness) ||
+         0.0 != opt->rand_read || NULL != opt->fn_muts_input ||
+         NULL != opt->fn_regions_bed ||
+         READS_OUTPUT_TYPE_BWA != opt->reads_output_type ||
+         OUTPUT_TYPE_ALL != opt->output_type) {
+          fprintf(stderr,
+                  "Error: matched mode currently requires Illumina paired-end, outer distance, -y 0, -M 0, -o 1, and no -H/-a/-m/-b/-v/-x\n");
+          return 0;
+      }
+      if(opt->indel_min > 1048576) {
+          fprintf(stderr, "Error: matched mode supports -I up to 1048576\n");
+          return 0;
+      }
+  }
 
   if(NULL != opt->fixed_quality && 1 != strlen(opt->fixed_quality)) {
       fprintf(stderr, "Error: command line option -q requires one character\n");
@@ -454,6 +566,12 @@ dwgsim_opt_parse(dwgsim_opt_t *opt, int argc, char *argv[])
           tmp_seq_mem = opt->length[i]+2;
           tmp_seq = (uint8_t*)calloc(tmp_seq_mem, 1);
           tmp_seq_flow_mask = (uint8_t*)calloc(tmp_seq_mem, 1);
+          if(NULL == tmp_seq || NULL == tmp_seq_flow_mask) {
+              free(tmp_seq);
+              free(tmp_seq_flow_mask);
+              fprintf(stderr, "Error: memory allocation failed while scaling flow errors\n");
+              exit(1);
+          }
           n_err = counts = 0;
           for(j=0;j<ERROR_RATE_NUM_RANDOM_READS;j++) {
               if(0 == (j % 10000)) {
