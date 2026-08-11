@@ -2,6 +2,19 @@
 
 set -euo pipefail
 
+online_cpu_count() {
+    local detected
+
+    if command -v getconf >/dev/null 2>&1; then
+        detected=$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)
+        if [[ $detected =~ ^[1-9][0-9]*$ ]]; then
+            printf '%s\n' "$detected"
+            return
+        fi
+    fi
+    printf '1\n'
+}
+
 if [[ $# -ne 2 ]]; then
     echo "Usage: $0 <reference.fasta> <output-directory>" >&2
     exit 2
@@ -15,7 +28,7 @@ read_pairs=${BENCHMARK_READ_PAIRS:-250000}
 read_length_1=${BENCHMARK_READ_LENGTH_1:-100}
 read_length_2=${BENCHMARK_READ_LENGTH_2:-100}
 random_seed=${BENCHMARK_SEED:-13}
-benchmark_threads=${BENCHMARK_THREADS:-1}
+benchmark_threads=${BENCHMARK_THREADS:-$(online_cpu_count)}
 
 for dependency in "$dwgsim_bin" "$time_bin" date gzip awk wc tee; do
     if ! command -v "$dependency" >/dev/null 2>&1; then

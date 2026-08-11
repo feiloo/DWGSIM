@@ -2,6 +2,19 @@
 
 set -euo pipefail
 
+online_cpu_count() {
+    local detected
+
+    if command -v getconf >/dev/null 2>&1; then
+        detected=$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)
+        if [[ $detected =~ ^[1-9][0-9]*$ ]]; then
+            printf '%s\n' "$detected"
+            return
+        fi
+    fi
+    printf '1\n'
+}
+
 if [[ $# -lt 3 || $# -gt 4 ]]; then
     echo "Usage: $0 <reference.fasta> <output-directory> <wgs|wes|wgs-filtered> [regions.bed]" >&2
     exit 2
@@ -14,7 +27,7 @@ regions_bed=${4:-}
 dwgsim_bin=${DWGSIM_BIN:-./dwgsim}
 read_pairs=${HUMAN_SMOKE_READ_PAIRS:-100}
 random_seed=${HUMAN_SMOKE_SEED:-13}
-threads=${HUMAN_SMOKE_THREADS:-1}
+threads=${HUMAN_SMOKE_THREADS:-$(online_cpu_count)}
 
 for dependency in "$dwgsim_bin" gzip awk; do
     if ! command -v "$dependency" >/dev/null 2>&1; then

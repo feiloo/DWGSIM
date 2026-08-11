@@ -177,7 +177,7 @@ Three FASTQ files are produced, for use with BFAST (interleaved FASTQ) and BWA (
 
 FASTQ output uses gzip-compatible BGZF compression at level 1. Ordinary gzip readers continue to work; BGZF-aware tools can also process the independent compressed blocks.
 
-Use `-t INT` to set the total thread budget for the main DWGSIM thread and BGZF compression helpers. Helpers are distributed across the active output streams, and the default is `-t 1`. Read simulation itself remains single-threaded.
+Use `-t INT` to set the total thread budget for the main DWGSIM thread and BGZF compression helpers. Helpers are distributed across the active output streams. The default is the number of online logical CPUs detected at startup; use `-t 1` to disable parallel compression. Read simulation itself remains single-threaded. With the same seed and other options, changing `-t` does not change any compressed FASTQ bytes.
 
 The implementation and validation strategy are documented in [BGZF FASTQ output plan](05_BGZF_FASTQ_Output.md).
 

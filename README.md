@@ -28,7 +28,7 @@ Use `-t` to set the total DWGSIM thread budget, including the main simulation th
 ./dwgsim -t 4 reference.fa output
 ```
 
-Helper threads are divided across the active BFAST/BWA output streams rather than created once per file. The default is `-t 1`. See [the BGZF design and validation plan](docs/05_BGZF_FASTQ_Output.md) for implementation details and compatibility notes.
+Helper threads are divided across the active BFAST/BWA output streams rather than created once per file. By default, DWGSIM detects the online logical CPU count and uses it as the total budget; use `-t 1` to force single-threaded compression. For a fixed seed and otherwise identical options, the complete BGZF FASTQ files are byte-identical across thread counts. See [the BGZF design and validation plan](docs/05_BGZF_FASTQ_Output.md) for implementation details and compatibility notes.
 
 ## Performance benchmark
 

@@ -37,6 +37,20 @@
 #include "dwgsim.h"
 #include "dwgsim_opt.h"
 
+static int32_t
+dwgsim_online_cpu_count(void)
+{
+#ifdef _SC_NPROCESSORS_ONLN
+  long count = sysconf(_SC_NPROCESSORS_ONLN);
+
+  if(0 < count) {
+      if(INT32_MAX < count) return INT32_MAX;
+      return (int32_t)count;
+  }
+#endif
+  return 1;
+}
+
 dwgsim_opt_t* dwgsim_opt_init()
 {
   dwgsim_opt_t *opt;
@@ -63,7 +77,7 @@ dwgsim_opt_t* dwgsim_opt_init()
   opt->flow_order_len = 0;
   opt->use_base_error = 0;
   opt->seed = -1;
-  opt->compression_threads = 1;
+  opt->compression_threads = dwgsim_online_cpu_count();
   opt->fixed_quality = NULL;
   opt->quality_std = 2.0;
   opt->fn_muts_input = NULL;
