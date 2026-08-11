@@ -179,11 +179,13 @@ The above shows a two base homozygous deletion of positions 22 and 23 on the sec
 
 Three FASTQ files are produced, for use with BFAST (interleaved FASTQ) and BWA (one FASTQ per read end).
 
-FASTQ output uses gzip-compatible BGZF compression at level 1. Ordinary gzip readers continue to work; BGZF-aware tools can also process the independent compressed blocks.
+FASTQ output uses gzip-compatible BGZF compression at level 4 by default. Ordinary gzip readers continue to work; BGZF-aware tools can also process the independent compressed blocks. Use `-l INT` to select level 1-9; level 1 favors speed while level 4 is the default size/runtime balance.
 
-Use `-t INT` to set the total thread budget for the main DWGSIM thread and BGZF compression helpers. Helpers are distributed across the active output streams. The default is the number of online logical CPUs detected at startup; use `-t 1` to disable parallel compression. Read simulation itself remains single-threaded. With the same seed and other options, changing `-t` does not change any compressed FASTQ bytes.
+Use `-t INT` to set the generation/compression worker count. The default is the number of online logical CPUs detected at startup. An indexed, mutation-free, random-read-free, reads-only BWA paired WGS run (`-r 0 -y 0 -M 1 -o 1`) uses the deterministic parallel generator. Its fixed tasks, task-local BGZF chunks, and ordered paired appenders make both complete FASTQs byte-identical across worker counts and repeated runs for identical non-thread inputs. The path writes `<prefix>.dwgsim.complete` only after both mate files are published.
 
-The implementation and validation strategy are documented in [BGZF FASTQ output plan](05_BGZF_FASTQ_Output.md).
+Other modes retain the legacy simulator. In that path, `-t` is distributed across BGZF helpers while read simulation remains serial. BED-restricted WGS/WES, mutation generation/input/output, random reads, BFAST/combined output, inner-distance pairs, and non-Illumina data currently use this fallback.
+
+The implementation and validation strategy are documented in [BGZF FASTQ output](05_BGZF_FASTQ_Output.md) and [Deterministic parallel generation](07_Deterministic_Parallel_Generation.md).
 
 The FASTQ for BFAST is formatted so that the multi-end reads (paired end or mate pair) occur consecutively in the FASTQ (interleaved), with the read that is 5' of the other listed first.
 For paired end reads, this means that E1 is always listed before E2.

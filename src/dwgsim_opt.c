@@ -78,6 +78,7 @@ dwgsim_opt_t* dwgsim_opt_init()
   opt->use_base_error = 0;
   opt->seed = -1;
   opt->compression_threads = dwgsim_online_cpu_count();
+  opt->compression_level = 4;
   opt->fixed_quality = NULL;
   opt->quality_std = 2.0;
   opt->fn_muts_input = NULL;
@@ -148,7 +149,8 @@ int dwgsim_opt_usage(dwgsim_opt_t *opt)
   fprintf(stderr, "         -B            use a per-base error rate for Ion Torrent data [%s]\n", __IS_TRUE(opt->use_base_error));
   fprintf(stderr, "         -H            haploid mode [%s]\n", __IS_TRUE(opt->is_hap));
   fprintf(stderr, "         -z INT        random seed (-1 uses the current time) [%d]\n", opt->seed);
-  fprintf(stderr, "         -t INT        total threads including BGZF compression helpers [%d]\n", opt->compression_threads);
+  fprintf(stderr, "         -t INT        total worker threads (generation and compression where supported) [%d]\n", opt->compression_threads);
+  fprintf(stderr, "         -l INT        BGZF compression level (1 is fastest; 4 is the default balance) [%d]\n", opt->compression_level);
   fprintf(stderr, "         -M            output files to generate [%d]:\n", opt->output_type);
   fprintf(stderr, "                           0: both reads and mutation files\n");
   fprintf(stderr, "                           1: reads only\n");
@@ -224,7 +226,7 @@ dwgsim_opt_parse(dwgsim_opt_t *opt, int argc, char *argv[])
   int c;
   int muts_input_type = 0;
   
-  while ((c = getopt(argc, argv, "id:s:N:C:1:2:e:E:r:F:R:X:I:c:S:A:n:y:BHf:z:t:M:m:b:v:x:P:q:Q:o:ah")) >= 0) {
+  while ((c = getopt(argc, argv, "id:s:N:C:1:2:e:E:r:F:R:X:I:c:S:A:n:y:BHf:z:t:l:M:m:b:v:x:P:q:Q:o:ah")) >= 0) {
       switch (c) {
         case 'i': opt->is_inner = 1; break;
         case 'd': opt->dist = dwgsim_atoi(optarg, 'd', 0); break;
@@ -258,6 +260,7 @@ dwgsim_opt_parse(dwgsim_opt_t *opt, int argc, char *argv[])
         case 'h': return 0;
         case 'z': opt->seed = dwgsim_atoi(optarg, 'z', 1); break;
         case 't': opt->compression_threads = dwgsim_atoi(optarg, 't', 0); break;
+        case 'l': opt->compression_level = dwgsim_atoi(optarg, 'l', 0); break;
         case 'M': opt->output_type = dwgsim_atoi(optarg, 'M', 0); break;
         case 'm':
                   free(opt->fn_muts_input);
@@ -375,6 +378,7 @@ dwgsim_opt_parse(dwgsim_opt_t *opt, int argc, char *argv[])
   __check_option(opt->use_base_error, 0, 1, "-B");
   __check_option(opt->is_hap, 0, 1, "-H");
   __check_option(opt->compression_threads, 1, INT32_MAX, "-t");
+  __check_option(opt->compression_level, 1, 9, "-l");
 
   if(NULL != opt->fixed_quality && 1 != strlen(opt->fixed_quality)) {
       fprintf(stderr, "Error: command line option -q requires one character\n");
@@ -405,6 +409,7 @@ dwgsim_opt_parse(dwgsim_opt_t *opt, int argc, char *argv[])
   {
       unsigned short xseed[3];
       long seed_val = (-1 == opt->seed) ? time(0) : opt->seed;
+      opt->seed = (int32_t)seed_val;
       xseed[0] = 0x330e;                       // low-order 16 bits (standard value)
       xseed[1] = seed_val & 0xffff;            // middle 16 bits
       xseed[2] = (seed_val >> 16) & 0xffff;   // high-order 16 bits

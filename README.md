@@ -20,22 +20,17 @@ make help
 
 ## BGZF FASTQ compression
 
-DWGSIM writes FASTQ files as gzip-compatible BGZF at compression level 1 using the BGZF implementation bundled with this repository. No external `bgzip` executable is required at runtime.
+DWGSIM writes FASTQ files as gzip-compatible BGZF using the implementation bundled with this repository. Compression level 4 is the default size/runtime balance; select levels 1-9 with `-l` (`-l 1` is the fast profile). No external `bgzip` executable is required at runtime.
 
-Use `-t` to set the total DWGSIM thread budget, including the main simulation thread and BGZF compression helpers:
+Use `-t` to set the generation/compression worker count:
 
 ```sh
 ./dwgsim -t 4 reference.fa output
 ```
 
-Helper threads are divided across the active BFAST/BWA output streams rather than created once per file. By default, DWGSIM detects the online logical CPU count and uses it as the total budget; use `-t 1` to force single-threaded compression. For a fixed seed and otherwise identical options, the complete BGZF FASTQ files are byte-identical across thread counts. See [the BGZF design and validation plan](docs/05_BGZF_FASTQ_Output.md) for implementation details and compatibility notes.
+By default, DWGSIM uses all online logical CPUs. The optimized path activates for an indexed FASTA and mutation-free, random-read-free, reads-only BWA paired WGS (`-r 0 -y 0 -M 1 -o 1`). It loads indexed contigs in parallel, generates fixed 8,192-pair tasks with schedule-independent RNG, compresses each task locally, and commits R1/R2 chunks in canonical order. The complete FASTQ files are byte-identical at `-t 1`, `-t 2`, `-t 8`, and `-t 128`, including repeated runs, for the same build, seed, inputs, options, and compression level. A successful run publishes both FASTQs and `<prefix>.dwgsim.complete`; partial staging files are not published.
 
-Read simulation and reference traversal are currently serial. The future
-[deterministic parallel generation target](docs/07_Deterministic_Parallel_Generation.md)
-defines fixed paired-read tasks, schedule-independent RNG, task-local BGZF
-chunks, ordered commit with stable FASTQ hashes, scaling beyond 100 cores, and
-a hard memory target below 500 GiB. It is a design target, not current command
-behavior.
+Modes outside that first optimized profile use the existing simulator and its parallel BGZF writer. BED-restricted WGS/WES, mutations, random reads, BFAST/combined output, inner-distance pairs, and non-Illumina modes are compatibility fallbacks for now. Build a missing FASTA index with `samtools faidx reference.fa`. See [the BGZF implementation notes](docs/05_BGZF_FASTQ_Output.md) and [deterministic parallel generation design/status](docs/07_Deterministic_Parallel_Generation.md).
 
 ## Performance benchmark
 
@@ -55,14 +50,17 @@ make benchmark-wgs
 
 This uses the complete pinned GRCh38.p14 assembly, disables mutations and random off-reference reads, and emits only the paired BWA FASTQs to avoid duplicate interleaved output. The default sample is five million paired-end 2x150 bp pairs, large enough to distinguish sustained generation from fixed reference work. Paired ends are written as synchronized `*.bwa.read1.fastq.gz` and `*.bwa.read2.fastq.gz` files. After the sample, it times a one-pair full-reference run and subtracts that fixed scan/setup cost from throughput before projecting production runtime. The report includes both raw and startup-adjusted rates, exact reference length, estimated pairs, duration, and compressed output size for `BENCHMARK_ESTIMATE_COVERAGE` (100 by default).
 
-The report includes read pairs/s, individual reads/s, bases/s, compressed-output throughput, elapsed and CPU time, CPU utilization, peak resident memory, and compressed output size. The workload and reference are configurable, for example:
+The report includes read pairs/s, individual reads/s, bases/s, compressed-output throughput, elapsed and CPU time, CPU utilization, peak resident memory, compression level, and compressed output size. The workload and reference are configurable, for example:
 
 ```sh
 make benchmark BENCHMARK_READ_PAIRS=1000000
 make benchmark BENCHMARK_REFERENCE=reference/GRCh38.p14/GCF_000001405.40_GRCh38.p14_genomic.fna
 make benchmark BENCHMARK_THREADS=4
+make benchmark BENCHMARK_COMPRESSION_LEVEL=1
 make benchmark-wgs WGS_BENCHMARK_READ_PAIRS=5000000
 ```
+
+On the eight-core development host, the implemented path generated five million GRCh38.p14 2x150 pairs at 484,070.87 startup-adjusted pairs/s (968,141.74 reads/s, 145.22 Mbases/s) with BGZF level 4. Peak RSS was 3,250 MiB, CPU utilization was 686%, and the resulting 100x projection was 37m52s and 293.05 GiB. The report is retained at `build/benchmark-parallel-wgs/benchmark.txt`; results depend strongly on CPU and storage.
 
 Use `make help` to list all benchmark variables. Results are most comparable when run on an otherwise idle machine with the same compiler flags, reference, read lengths, and storage.
 

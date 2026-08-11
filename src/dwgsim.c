@@ -48,6 +48,7 @@
 #include "mut_bed.h"
 #include "regions_bed.h"
 #include "dwgsim_opt.h"
+#include "parallel_wgs.h"
 #include "dwgsim.h"
 //#include <config.h>
 
@@ -1128,12 +1129,14 @@ void dwgsim_core(dwgsim_opt_t * opt)
 
 static fastq_writer_t *
 dwgsim_fastq_writer_open(const char *path, int total_threads,
-                         int stream_count, int stream_index)
+                         int stream_count, int stream_index,
+                         int compression_level)
 {
   int stream_threads = fastq_writer_threads_for_stream(total_threads,
                                                        stream_count,
                                                        stream_index);
-  fastq_writer_t *writer = fastq_writer_open(path, stream_threads);
+  fastq_writer_t *writer = fastq_writer_open(path, stream_threads,
+                                              compression_level);
 
   if(NULL == writer) {
       fprintf(stderr, "Error: could not open BGZF FASTQ output: %s\n",
@@ -1162,6 +1165,13 @@ int main(int argc, char *argv[])
   if(0 == dwgsim_opt_parse(opt, argc, argv)) {
       return dwgsim_opt_usage(opt);
   }
+
+  if(dwgsim_parallel_wgs_supported(opt, argv[optind])) {
+      exit_status = dwgsim_parallel_wgs_run(opt, argv[optind],
+                                            argv[optind + 1]);
+      dwgsim_opt_destroy(opt);
+      return exit_status;
+  }
   if(opt->output_type != OUTPUT_TYPE_MUTS) {
       if(opt->reads_output_type != READS_OUTPUT_TYPE_BWA) {
           output_streams++;
@@ -1186,17 +1196,17 @@ int main(int argc, char *argv[])
           snprintf(fn_tmp, sizeof(fn_tmp), "%s.bfast.fastq.gz", argv[optind+1]);
           opt->fp_bfast = dwgsim_fastq_writer_open(
               fn_tmp, opt->compression_threads, output_streams,
-              output_stream_index++);
+              output_stream_index++, opt->compression_level);
       }
       if (opt->reads_output_type != READS_OUTPUT_TYPE_BFAST) {
           snprintf(fn_tmp, sizeof(fn_tmp), "%s.bwa.read1.fastq.gz", argv[optind+1]);
           opt->fp_bwa1 = dwgsim_fastq_writer_open(
               fn_tmp, opt->compression_threads, output_streams,
-              output_stream_index++);
+              output_stream_index++, opt->compression_level);
           snprintf(fn_tmp, sizeof(fn_tmp), "%s.bwa.read2.fastq.gz", argv[optind+1]);
           opt->fp_bwa2 = dwgsim_fastq_writer_open(
               fn_tmp, opt->compression_threads, output_streams,
-              output_stream_index++);
+              output_stream_index++, opt->compression_level);
       }
   }
 

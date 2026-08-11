@@ -5,20 +5,25 @@
 
 #include "fastq_writer.h"
 
-#define FASTQ_BGZF_MODE "w1"
 #define FASTQ_BGZF_SUB_BLOCKS 64
 
 fastq_writer_t *
-fastq_writer_open(const char *path, int compression_threads)
+fastq_writer_open(const char *path, int compression_threads,
+                  int compression_level)
 {
     fastq_writer_t *writer;
+    char mode[3];
 
-    if(NULL == path || compression_threads < 1) return NULL;
+    if(NULL == path || compression_threads < 1 || compression_level < 1 ||
+       9 < compression_level) return NULL;
 
     writer = calloc(1, sizeof(*writer));
     if(NULL == writer) return NULL;
 
-    writer->fp = bgzf_open(path, FASTQ_BGZF_MODE);
+    mode[0] = 'w';
+    mode[1] = (char)('0' + compression_level);
+    mode[2] = '\0';
+    writer->fp = bgzf_open(path, mode);
     if(NULL == writer->fp) {
         free(writer);
         return NULL;

@@ -1,10 +1,12 @@
-# Deterministic parallel generation target
+# Deterministic parallel generation design and status
 
-> Status: design target, not the current implementation.
+> Status: the first WGS milestone is implemented.
 >
-> The current implementation parallelizes BGZF compression while read
-> simulation and reference traversal remain serial. This document defines the
-> target architecture for parallel read generation and deterministic output.
+> The deterministic path currently covers indexed, mutation-free,
+> random-read-free, reads-only BWA paired WGS. Modes outside that profile use
+> the legacy simulator and its parallel BGZF writer. Sections describing BED,
+> mutations, NUMA policy, and production 64/128-core scaling remain design
+> targets.
 
 ## Goals
 
@@ -26,6 +28,13 @@
 The first optimized milestone targets reads-only, BWA-only, paired-end 2x150
 bp generation. The same task and RNG model must subsequently support WGS,
 BED-restricted WGS, WES-like BED input, mutation input, and mutation output.
+
+The implemented path is selected by `-r 0 -y 0 -M 1 -o 1`, paired Illumina
+outer-distance reads, and a readable `<reference>.fai`. It also supports
+explicit read lengths, error curves, quality variation or fixed quality,
+strand-one selection, read prefixes, maximum-N rejection, seeds, worker
+counts, and BGZF levels 1-9. A missing index or an unsupported option selects
+the compatibility path without changing those modes' established behavior.
 
 ## Non-goals
 
@@ -102,10 +111,35 @@ zlib BGZF levels:
 | 6 | 18.48 s | 276.8 MB | +68.0% time, -9.9% size |
 | 9 | 24.94 s | 274.8 MB | +126.7% time, -10.5% size |
 
-Level 4 is the provisional size-balanced default for the optimized design;
-level 1 remains the fast profile. The final default must be confirmed after
-generation and compression share all cores, because level 4 was 22% slower
-than level 1 in a single-core-per-shard measurement.
+These measurements made level 4 the candidate size-balanced default and level
+1 the fast profile. The end-to-end implemented-path benchmark below confirmed
+level 4 as the default after generation and compression began sharing all
+workers.
+
+### Implemented-path benchmark
+
+The completed milestone was benchmarked on the same eight-logical-CPU host
+with five million GRCh38.p14 2x150 pairs and BGZF level 4. It planned 1,263
+fixed tasks and produced the following end-to-end result:
+
+| Metric | Implemented path |
+| --- | ---: |
+| Raw pairs/s | 452,343.69 |
+| Startup-adjusted pairs/s | 484,070.87 |
+| Startup-adjusted reads/s | 968,141.74 |
+| Startup-adjusted bases/s | 145.22 million |
+| Full-reference fixed work | 0.72 s |
+| CPU utilization | 686% |
+| Peak RSS | 3,250.20 MiB |
+| Compressed sample size | 1,430,946,471 bytes |
+| Estimated 100x runtime | 37 m 52 s |
+| Estimated 100x BGZF output | 293.05 GiB |
+
+This is a 4.71x startup-adjusted throughput increase over the 102,699.76
+pairs/s legacy measurement and exceeds the 350,000-pairs/s eight-core gate.
+The retained report is `build/benchmark-parallel-wgs/benchmark.txt`. The
+measurement used the local page-cache and storage state and is evidence for
+this host, not a universal runtime guarantee.
 
 ## Architecture
 
@@ -179,7 +213,7 @@ Allocation cannot depend on traversal order, worker count, or task completion.
 
 ### Pair tasks and canonical order
 
-The provisional task size is 8,192 read pairs. Each task contains:
+Format version 1 fixes the task size at 8,192 read pairs. Each task contains:
 
 ```text
 format version
@@ -372,25 +406,52 @@ A conservative 128-worker target is:
 Memory limits affect only cache residency and scheduling. They must never
 change task boundaries, RNG keys, canonical order, or output hashes.
 
+The implemented mutation-free GRCh38 path stores one encoded reference byte
+per base and measured 3,250 MiB peak RSS with eight workers. Its result window
+is bounded to twice the requested worker count, with a minimum of eight slots;
+workers stop claiming tasks when that window is full. The larger targets above
+remain budgets for future diploid mutation state and 128-core validation.
+
 ## Compression policy
 
-Compression level becomes an explicit simulation option and a reported
-benchmark field. Proposed profiles are:
+Compression level is an explicit `-l` simulation option and a reported
+benchmark field. Current profiles are:
 
 - level 1: fastest output;
-- level 4: provisional default size/runtime balance;
-- levels 5-9: opt-in only.
+- level 4: default size/runtime balance;
+- levels 2-3 and 5-9: explicit alternatives.
 
-The default must be chosen from an end-to-end parallel benchmark, not from
-compression in isolation. Higher levels cannot solve the FASTQ size problem
-alone: level 9 saved only about 10.5% versus level 1 while more than doubling
-wall time in the controlled benchmark.
+Level 4 was selected after the end-to-end parallel benchmark cleared its
+throughput gate. Higher levels cannot solve the FASTQ size problem alone:
+level 9 saved only about 10.5% versus level 1 while more than doubling wall
+time in the controlled compression benchmark.
 
 Quality binning or fixed qualities can reduce output much more, but they change
 the simulated quality model and remain explicit scientific options rather than
 compression defaults.
 
 ## Validation and acceptance gates
+
+The implemented test `make test-parallel-wgs` currently:
+
+- schedules 160 fixed tasks and exercises 1, 2, 8, 64, and 128 actual
+  generation workers, automatic worker selection, and a repeated 8-worker run;
+- byte-compares complete R1 and R2 BGZF files against the single-worker
+  baseline;
+- validates ordinary gzip and bundled-bgzip decoding, exact counts, 150-base
+  sequence/quality lengths, synchronized mate identifiers, and the canonical
+  final BGZF EOF block;
+- verifies byte determinism at every supported BGZF level 1-9 and unchanged
+  decompressed read contents between levels;
+- checks successful completion manifests, removal of staging files, and
+  compression-level range rejection;
+- forces a worker placement failure after staging begins and confirms that no
+  mate FASTQ, completion manifest, or partial file is published.
+
+The complete legacy and new-path regression suite passes. AddressSanitizer and
+UndefinedBehaviorSanitizer pass the threaded test. ThreadSanitizer found one
+reference-loader startup race; that flag was synchronized and the rerun is
+clean. The full GRCh38 smoke and five-million-pair benchmark also pass.
 
 ### Correctness
 
@@ -432,16 +493,20 @@ implementation and version, compression level, format version, and reference
 checksums. Cross-host hash guarantees are added only after these dependencies
 are pinned or replaced with platform-independent implementations.
 
-## Decisions to close before freezing golden hashes
+## Format-version decisions
 
-- Select and version the counter-based PRNG and domain-key encoding.
-- Confirm the provisional 8,192-pair task size with compression-ratio,
-  straggler, and reorder-memory measurements.
-- Select and pin the BGZF compressor implementation.
-- Confirm level 4 or choose another default from the completed parallel
-  pipeline benchmark.
-- Choose the staging-directory and completion-manifest naming contract.
-- Decide whether cross-host hashes are part of the first release contract.
+- Format version 1 uses domain-separated, pair-local SplitMix64-derived RNG
+  streams. Fragment retries, strand selection, errors, and qualities cannot
+  consume randomness belonging to another pair.
+- Canonical tasks contain 8,192 pairs and restart at contig boundaries.
+- Task BGZF uses the bundled zlib raw-deflate implementation, fixed 65,280-byte
+  uncompressed blocks, task-final partial blocks, and one final canonical EOF.
+- Level 4 is the default; the selected level is part of output identity.
+- Final FASTQs are generated as `.partial.<pid>` siblings. Both are flushed,
+  synchronized, and renamed before `<prefix>.dwgsim.complete` is atomically
+  published.
+- Hash identity is scoped to the same executable/build platform and zlib
+  version. Cross-host hashes are not yet promised.
 
 Changing any choice that affects pair identities, canonical order, FASTQ
 formatting, task compression boundaries, or compressor bytes requires a new
@@ -449,20 +514,19 @@ format version and a deliberately regenerated golden baseline.
 
 ## Implementation stages
 
-1. **Planner and baseline:** implement stable pair allocation, task IDs, and
-   domain-separated RNG in single-thread mode; accept new golden hashes.
-2. **Paired task workers:** generate fixed R1/R2 task buffers in parallel while
-   retaining the current ordered compressor.
-3. **Task-local BGZF:** compress deterministic task chunks independently and
-   append them through the result ring.
-4. **Parallel reference preparation:** replace sequential FASTA traversal with
-   indexed contig tasks and immutable shared mutation state.
-5. **Memory and NUMA controls:** add bounded dispatch, contig eviction, local
-   queues, and cross-node work stealing.
-6. **Compression selection:** expose the level, confirm the default, and test
-   hashes for every supported level.
-7. **Scale validation:** run the complete determinism, memory, and 64/128-core
-   performance gates.
+| Stage | Status |
+| --- | --- |
+| Stable allocation, task IDs, and domain-separated RNG | Implemented for the WGS profile |
+| Parallel paired task generation | Implemented |
+| Task-local BGZF and ordered paired result ring | Implemented |
+| Indexed parallel reference preparation | Implemented for mutation-free input |
+| Bounded dispatch | Implemented |
+| Contig eviction, NUMA-local queues, and cross-node stealing | Not implemented |
+| Explicit levels and level-4 default | Implemented |
+| BED/WES and mutation-mode integration | Not implemented; compatibility fallback |
+| Requested-worker hash validation through 128 | Implemented |
+| Physical 64/128-core performance and memory validation | Not yet run |
+| Failure/crash injection across every publication step | Not yet run |
 
 Each stage must preserve the accepted single-thread paired-read contents and
 must pass hash determinism before the next stage begins.

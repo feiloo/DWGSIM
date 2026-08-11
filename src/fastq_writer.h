@@ -12,7 +12,8 @@ typedef struct {
     int error;
 } fastq_writer_t;
 
-fastq_writer_t *fastq_writer_open(const char *path, int compression_threads);
+fastq_writer_t *fastq_writer_open(const char *path, int compression_threads,
+                                  int compression_level);
 int fastq_writer_flush(fastq_writer_t *writer);
 int fastq_writer_write(fastq_writer_t *writer, const void *data, size_t length);
 int fastq_writer_printf(fastq_writer_t *writer, const char *format, ...)

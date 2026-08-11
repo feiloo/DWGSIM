@@ -29,6 +29,7 @@ read_length_1=${BENCHMARK_READ_LENGTH_1:-150}
 read_length_2=${BENCHMARK_READ_LENGTH_2:-150}
 random_seed=${BENCHMARK_SEED:-13}
 benchmark_threads=${BENCHMARK_THREADS:-$(online_cpu_count)}
+compression_level=${BENCHMARK_COMPRESSION_LEVEL:-4}
 estimate_coverage=${BENCHMARK_ESTIMATE_COVERAGE:-100}
 measure_startup=${BENCHMARK_MEASURE_STARTUP:-0}
 
@@ -57,6 +58,10 @@ for setting in \
         exit 2
     fi
 done
+if [[ ! $compression_level =~ ^[1-9]$ ]]; then
+    echo "benchmark: BENCHMARK_COMPRESSION_LEVEL must be an integer from 1 to 9" >&2
+    exit 2
+fi
 
 if [[ ! $random_seed =~ ^[0-9]+$ ]]; then
     echo "benchmark: BENCHMARK_SEED must be a non-negative integer" >&2
@@ -93,6 +98,7 @@ if ! LC_ALL=C "$time_bin" \
     "$dwgsim_bin" \
     -z "$random_seed" \
     -t "$benchmark_threads" \
+    -l "$compression_level" \
     -N "$read_pairs" \
     -1 "$read_length_1" \
     -2 "$read_length_2" \
@@ -131,6 +137,7 @@ if [[ $measure_startup == 1 ]]; then
     if ! "$dwgsim_bin" \
         -z "$random_seed" \
         -t "$benchmark_threads" \
+        -l "$compression_level" \
         -N 1 \
         -1 "$read_length_1" \
         -2 "$read_length_2" \
@@ -192,6 +199,7 @@ awk \
     -v length_2="$read_length_2" \
     -v seed="$random_seed" \
     -v threads="$benchmark_threads" \
+    -v compression_level="$compression_level" \
     -v reference_bases="$reference_bases" \
     -v estimate_coverage="$estimate_coverage" \
     -v elapsed="$elapsed_seconds" \
@@ -241,6 +249,7 @@ BEGIN {
     printf "bases=%.0f\n", bases
     printf "seed=%.0f\n", seed
     printf "threads=%.0f\n", threads
+    printf "compression_level=%.0f\n", compression_level
     printf "elapsed_seconds=%.6f\n", elapsed
     printf "startup_baseline_pairs=%.0f\n", measured_startup_pairs
     printf "startup_baseline_seconds=%.6f\n", measured_startup_seconds

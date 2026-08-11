@@ -42,6 +42,7 @@ typedef struct {
     int32_t is_hap;
     int32_t seed;
     int32_t compression_threads;
+    int32_t compression_level;
     char *fixed_quality;
     double quality_std;
     char *fn_muts_input;
