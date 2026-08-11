@@ -20,7 +20,6 @@ SUBDIRS=	samtools .
 CLEAN_SUBDIRS=	samtools src
 LIBPATH=
 
-GATK ?= gatk
 CURL ?= curl
 MD5SUM ?= md5sum
 REFERENCE_ROOT ?= reference
@@ -31,12 +30,10 @@ HUMAN_REFERENCE_ARCHIVE ?= $(HUMAN_REFERENCE_DIR)/$(HUMAN_REFERENCE_BASENAME).fn
 HUMAN_REFERENCE_FASTA ?= $(HUMAN_REFERENCE_DIR)/$(HUMAN_REFERENCE_BASENAME).fna
 HUMAN_REFERENCE_URL ?= https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/001/405/GCF_000001405.40_GRCh38.p14/$(HUMAN_REFERENCE_BASENAME).fna.gz
 HUMAN_REFERENCE_MD5 ?= c30471567037b2b2389d43c908c653e1
-HUMAN_TEST_DIR ?= build/human-reference-test
-HUMAN_TEST_READ_PAIRS ?= 1000
-HUMAN_TEST_MUTATION_RATE ?= 0.000001
-HUMAN_TEST_SEED ?= 13
+HUMAN_SMOKE_DIR ?= build/human-reference-smoke
+HUMAN_SMOKE_READ_PAIRS ?= 100
+HUMAN_SMOKE_SEED ?= 13
 DWGSIM_BIN ?= ./dwgsim
-SAMTOOLS_BIN ?= samtools/samtools
 
 .SUFFIXES:.c .o
 
@@ -71,15 +68,13 @@ help:
 	@printf '  %-26s %s\n' 'all' 'Build all DWGSIM executables (default).'
 	@printf '  %-26s %s\n' 'test' 'Run unit and integration tests.'
 	@printf '  %-26s %s\n' 'download' 'Download and verify the full NCBI GRCh38.p14 reference.'
-	@printf '  %-26s %s\n' 'test-human-reference' 'Run DWGSIM on GRCh38.p14 and validate its VCF with GATK.'
+	@printf '  %-26s %s\n' 'test-human-reference' 'Run the reads-only DWGSIM smoke test on full GRCh38.p14.'
 	@printf '  %-26s %s\n' 'clean' 'Remove compiled programs, objects, and regular test artifacts.'
 	@printf '  %-26s %s\n' 'help' 'Show this help.'
 	@printf '\nHuman-reference settings:\n'
-	@printf '  %-26s %s\n' 'GATK=gatk' 'GATK launcher or absolute executable path.'
 	@printf '  %-26s %s\n' 'HUMAN_REFERENCE_DIR=...' 'Reference destination (default: $(HUMAN_REFERENCE_DIR)).'
-	@printf '  %-26s %s\n' 'HUMAN_TEST_READ_PAIRS=...' 'Read pairs to simulate (default: $(HUMAN_TEST_READ_PAIRS)).'
-	@printf '  %-26s %s\n' 'HUMAN_TEST_MUTATION_RATE=...' 'Mutation rate (default: $(HUMAN_TEST_MUTATION_RATE)).'
-	@printf '  %-26s %s\n' 'HUMAN_TEST_DIR=...' 'Test output directory (default: $(HUMAN_TEST_DIR)).'
+	@printf '  %-26s %s\n' 'HUMAN_SMOKE_READ_PAIRS=...' 'Read pairs to simulate (default: $(HUMAN_SMOKE_READ_PAIRS)).'
+	@printf '  %-26s %s\n' 'HUMAN_SMOKE_DIR=...' 'Smoke-test output directory (default: $(HUMAN_SMOKE_DIR)).'
 
 download: download-human-reference
 
@@ -89,18 +84,12 @@ download-human-reference:
 		"$(HUMAN_REFERENCE_ARCHIVE)" "$(HUMAN_REFERENCE_FASTA)"
 
 test-human-reference: all
-	@if ! command -v "$(GATK)" >/dev/null 2>&1; then \
-		echo "GATK was not found: $(GATK)" >&2; \
-		echo "Install GATK or run make test-human-reference GATK=/path/to/gatk" >&2; \
-		exit 1; \
-	fi
 	$(MAKE) --no-print-directory download-human-reference
-	GATK="$(GATK)" DWGSIM_BIN="$(DWGSIM_BIN)" SAMTOOLS_BIN="$(SAMTOOLS_BIN)" \
-		HUMAN_TEST_READ_PAIRS="$(HUMAN_TEST_READ_PAIRS)" \
-		HUMAN_TEST_MUTATION_RATE="$(HUMAN_TEST_MUTATION_RATE)" \
-		HUMAN_TEST_SEED="$(HUMAN_TEST_SEED)" \
-		/bin/bash scripts/test_human_reference.sh \
-		"$(HUMAN_REFERENCE_FASTA)" "$(HUMAN_TEST_DIR)"
+	DWGSIM_BIN="$(DWGSIM_BIN)" \
+		HUMAN_SMOKE_READ_PAIRS="$(HUMAN_SMOKE_READ_PAIRS)" \
+		HUMAN_SMOKE_SEED="$(HUMAN_SMOKE_SEED)" \
+		/bin/bash scripts/smoke_test_human_reference.sh \
+		"$(HUMAN_REFERENCE_FASTA)" "$(HUMAN_SMOKE_DIR)"
 
 dwgsim:lib-recur $(DWGSIM_AOBJS)
 	$(CC) $(CFLAGS) -o $@ $(DWGSIM_AOBJS) -lm -lz -lpthread

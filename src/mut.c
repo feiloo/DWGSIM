@@ -759,11 +759,13 @@ void mut_diref(dwgsim_opt_t *opt, const seq_t *seq, mutseq_t *hap1, mutseq_t *ha
 
 void mut_print_header_pre(FILE *fpout_vcf)
 {
+  if(NULL == fpout_vcf) return;
   fprintf(fpout_vcf, "##fileformat=VCFv4.1\n");
 }
 
 void mut_print_header_post(FILE *fpout_vcf)
 {
+  if(NULL == fpout_vcf) return;
   fprintf(fpout_vcf, "##INFO=<ID=AF,Number=A,Type=Float,Description=\"Allele Frequency\">\n");
   fprintf(fpout_vcf, "##INFO=<ID=pl,Number=1,Type=Integer,Description=\"Phasing: 1 - HET contig 1, #2 - HET contig #2, 3 - HOM both contigs\">\n"); 
   fprintf(fpout_vcf, "##INFO=<ID=mt,Number=1,Type=String,Description=\"Variant Type: SUBSTITUTE/INSERT/DELETE\">\n");
@@ -772,6 +774,7 @@ void mut_print_header_post(FILE *fpout_vcf)
 
 void mut_print_header_contig(FILE *fpout_vcf, const char *name, int32_t length)
 {
+  if(NULL == fpout_vcf) return;
   // TODO: does mutating the reference change the sequence length?  If so, this
   // is not correct.
   fprintf(fpout_vcf, "##contig=<ID=%s,length=%d>\n", name, length);
