@@ -40,12 +40,21 @@ make benchmark
 
 By default it generates 250,000 pairs of 100 bp reads from the bundled small reference and writes its report to `build/benchmark/benchmark.txt`. The timed section includes DWGSIM startup, simulation, gzip compression, and both FASTQ writes; post-run FASTQ integrity and record-count checks are excluded.
 
+For a representative full-reference WGS measurement and a nominal 100x projection, use:
+
+```sh
+make benchmark-wgs
+```
+
+This uses the complete pinned GRCh38.p14 assembly, disables mutations and random off-reference reads, and emits only the paired BWA FASTQs to avoid duplicate interleaved output. The default sample is five million 2x100 bp pairs, large enough to distinguish sustained generation from fixed reference work. After the sample, it times a one-pair full-reference run and subtracts that fixed scan/setup cost from throughput before projecting production runtime. The report includes both raw and startup-adjusted rates, exact reference length, estimated pairs, duration, and compressed output size for `BENCHMARK_ESTIMATE_COVERAGE` (100 by default).
+
 The report includes read pairs/s, individual reads/s, bases/s, compressed-output throughput, elapsed and CPU time, CPU utilization, peak resident memory, and compressed output size. The workload and reference are configurable, for example:
 
 ```sh
 make benchmark BENCHMARK_READ_PAIRS=1000000
 make benchmark BENCHMARK_REFERENCE=reference/GRCh38.p14/GCF_000001405.40_GRCh38.p14_genomic.fna
 make benchmark BENCHMARK_THREADS=4
+make benchmark-wgs WGS_BENCHMARK_READ_PAIRS=5000000
 ```
 
 Use `make help` to list all benchmark variables. Results are most comparable when run on an otherwise idle machine with the same compiler flags, reference, read lengths, and storage.

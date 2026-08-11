@@ -58,6 +58,10 @@ BENCHMARK_READ_LENGTH_1 ?= 100
 BENCHMARK_READ_LENGTH_2 ?= 100
 BENCHMARK_SEED ?= 13
 BENCHMARK_THREADS ?= $(AVAILABLE_CPU_THREADS)
+BENCHMARK_ESTIMATE_COVERAGE ?= 100
+BENCHMARK_MEASURE_STARTUP ?= 0
+WGS_BENCHMARK_READ_PAIRS ?= 5000000
+WGS_BENCHMARK_DIR ?= build/benchmark-wgs
 
 .SUFFIXES:.c .o
 
@@ -88,7 +92,7 @@ all:$(PROG)
 .PHONY:all lib clean cleanlocal test test-unit test-integration test-bgzf test-bed clean-tests help
 .PHONY:download download-human-reference download-human-regions prepare-human-regions samtools-program
 .PHONY: test-human-reference test-human-wgs test-human-wes test-human-wgs-filtered
-.PHONY:benchmark
+.PHONY:benchmark benchmark-wgs
 .PHONY:all-recur lib-recur clean-recur cleanlocal-recur install-recur
 
 help:
@@ -97,6 +101,7 @@ help:
 	@printf '  %-26s %s\n' 'all' 'Build all DWGSIM executables (default).'
 	@printf '  %-26s %s\n' 'test' 'Run unit, integration, BGZF, and BED tests.'
 	@printf '  %-26s %s\n' 'benchmark' 'Measure reads-only simulation throughput and resource use.'
+	@printf '  %-26s %s\n' 'benchmark-wgs' 'Benchmark full GRCh38 WGS and estimate 100x generation.'
 	@printf '  %-26s %s\n' 'test-bgzf' 'Test BGZF compatibility, modes, and thread determinism.'
 	@printf '  %-26s %s\n' 'test-bed' 'Test BED boundaries, headers, and validation errors.'
 	@printf '  %-26s %s\n' 'download' 'Download/verify GRCh38.p14 and pinned human BED sources.'
@@ -114,7 +119,11 @@ help:
 	@printf '  %-30s %s\n' 'BENCHMARK_READ_LENGTH_2=...' 'Second-read length (default: $(BENCHMARK_READ_LENGTH_2)).'
 	@printf '  %-30s %s\n' 'BENCHMARK_SEED=...' 'Random seed (default: $(BENCHMARK_SEED)).'
 	@printf '  %-30s %s\n' 'BENCHMARK_THREADS=...' 'DWGSIM thread budget (default: $(BENCHMARK_THREADS)).'
+	@printf '  %-30s %s\n' 'BENCHMARK_ESTIMATE_COVERAGE=...' 'Coverage projection (default: $(BENCHMARK_ESTIMATE_COVERAGE)x).'
+	@printf '  %-30s %s\n' 'BENCHMARK_MEASURE_STARTUP=0|1' 'Subtract a one-pair fixed-cost run (default: $(BENCHMARK_MEASURE_STARTUP)).'
 	@printf '  %-30s %s\n' 'BENCHMARK_DIR=...' 'Output and report directory (default: $(BENCHMARK_DIR)).'
+	@printf '  %-30s %s\n' 'WGS_BENCHMARK_READ_PAIRS=...' 'Full-GRCh38 sample pairs (default: $(WGS_BENCHMARK_READ_PAIRS)).'
+	@printf '  %-30s %s\n' 'WGS_BENCHMARK_DIR=...' 'Full-GRCh38 report directory (default: $(WGS_BENCHMARK_DIR)).'
 	@printf '\nHuman-reference settings:\n'
 	@printf '  %-26s %s\n' 'HUMAN_REFERENCE_DIR=...' 'Reference destination (default: $(HUMAN_REFERENCE_DIR)).'
 	@printf '  %-26s %s\n' 'HUMAN_SMOKE_READ_PAIRS=...' 'Read pairs to simulate (default: $(HUMAN_SMOKE_READ_PAIRS)).'
@@ -195,8 +204,18 @@ benchmark: dwgsim
 		BENCHMARK_READ_LENGTH_2="$(BENCHMARK_READ_LENGTH_2)" \
 		BENCHMARK_SEED="$(BENCHMARK_SEED)" \
 		BENCHMARK_THREADS="$(BENCHMARK_THREADS)" \
+		BENCHMARK_ESTIMATE_COVERAGE="$(BENCHMARK_ESTIMATE_COVERAGE)" \
+		BENCHMARK_MEASURE_STARTUP="$(BENCHMARK_MEASURE_STARTUP)" \
 		/bin/bash scripts/benchmark.sh \
 		"$(BENCHMARK_REFERENCE)" "$(BENCHMARK_DIR)"
+
+benchmark-wgs: dwgsim download-human-reference
+	$(MAKE) --no-print-directory benchmark \
+		BENCHMARK_REFERENCE="$(HUMAN_REFERENCE_FASTA)" \
+		BENCHMARK_READ_PAIRS="$(WGS_BENCHMARK_READ_PAIRS)" \
+		BENCHMARK_DIR="$(WGS_BENCHMARK_DIR)" \
+		BENCHMARK_ESTIMATE_COVERAGE="$(BENCHMARK_ESTIMATE_COVERAGE)" \
+		BENCHMARK_MEASURE_STARTUP=1
 
 dwgsim:lib-recur $(DWGSIM_AOBJS)
 	$(CC) $(CFLAGS) -o $@ $(DWGSIM_AOBJS) samtools/libbam.a -lm -lz -lpthread
