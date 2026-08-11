@@ -63,6 +63,7 @@ dwgsim_opt_t* dwgsim_opt_init()
   opt->flow_order_len = 0;
   opt->use_base_error = 0;
   opt->seed = -1;
+  opt->compression_threads = 1;
   opt->fixed_quality = NULL;
   opt->quality_std = 2.0;
   opt->fn_muts_input = NULL;
@@ -133,6 +134,7 @@ int dwgsim_opt_usage(dwgsim_opt_t *opt)
   fprintf(stderr, "         -B            use a per-base error rate for Ion Torrent data [%s]\n", __IS_TRUE(opt->use_base_error));
   fprintf(stderr, "         -H            haploid mode [%s]\n", __IS_TRUE(opt->is_hap));
   fprintf(stderr, "         -z INT        random seed (-1 uses the current time) [%d]\n", opt->seed);
+  fprintf(stderr, "         -t INT        total threads including BGZF compression helpers [%d]\n", opt->compression_threads);
   fprintf(stderr, "         -M            output files to generate [%d]:\n", opt->output_type);
   fprintf(stderr, "                           0: both reads and mutation files\n");
   fprintf(stderr, "                           1: reads only\n");
@@ -208,7 +210,7 @@ dwgsim_opt_parse(dwgsim_opt_t *opt, int argc, char *argv[])
   int c;
   int muts_input_type = 0;
   
-  while ((c = getopt(argc, argv, "id:s:N:C:1:2:e:E:r:F:R:X:I:c:S:A:n:y:BHf:z:M:m:b:v:x:P:q:Q:o:ah")) >= 0) {
+  while ((c = getopt(argc, argv, "id:s:N:C:1:2:e:E:r:F:R:X:I:c:S:A:n:y:BHf:z:t:M:m:b:v:x:P:q:Q:o:ah")) >= 0) {
       switch (c) {
         case 'i': opt->is_inner = 1; break;
         case 'd': opt->dist = dwgsim_atoi(optarg, 'd', 0); break;
@@ -241,6 +243,7 @@ dwgsim_opt_parse(dwgsim_opt_t *opt, int argc, char *argv[])
         case 'H': opt->is_hap = 1; break;
         case 'h': return 0;
         case 'z': opt->seed = dwgsim_atoi(optarg, 'z', 1); break;
+        case 't': opt->compression_threads = dwgsim_atoi(optarg, 't', 0); break;
         case 'M': opt->output_type = dwgsim_atoi(optarg, 'M', 0); break;
         case 'm':
                   free(opt->fn_muts_input);
@@ -357,6 +360,7 @@ dwgsim_opt_parse(dwgsim_opt_t *opt, int argc, char *argv[])
   }
   __check_option(opt->use_base_error, 0, 1, "-B");
   __check_option(opt->is_hap, 0, 1, "-H");
+  __check_option(opt->compression_threads, 1, INT32_MAX, "-t");
 
   if(NULL != opt->fixed_quality && 1 != strlen(opt->fixed_quality)) {
       fprintf(stderr, "Error: command line option -q requires one character\n");

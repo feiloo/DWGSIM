@@ -15,6 +15,7 @@ read_pairs=${BENCHMARK_READ_PAIRS:-250000}
 read_length_1=${BENCHMARK_READ_LENGTH_1:-100}
 read_length_2=${BENCHMARK_READ_LENGTH_2:-100}
 random_seed=${BENCHMARK_SEED:-13}
+benchmark_threads=${BENCHMARK_THREADS:-1}
 
 for dependency in "$dwgsim_bin" "$time_bin" date gzip awk wc tee; do
     if ! command -v "$dependency" >/dev/null 2>&1; then
@@ -31,7 +32,8 @@ fi
 for setting in \
     "BENCHMARK_READ_PAIRS:$read_pairs" \
     "BENCHMARK_READ_LENGTH_1:$read_length_1" \
-    "BENCHMARK_READ_LENGTH_2:$read_length_2"; do
+    "BENCHMARK_READ_LENGTH_2:$read_length_2" \
+    "BENCHMARK_THREADS:$benchmark_threads"; do
     setting_name=${setting%%:*}
     setting_value=${setting#*:}
     if [[ ! $setting_value =~ ^[1-9][0-9]*$ ]]; then
@@ -50,13 +52,14 @@ output_prefix=${output_directory}/dwgsim-benchmark
 resource_metrics_file=${output_directory}/resource-metrics.txt
 report_file=${output_directory}/benchmark.txt
 
-echo "Generating $read_pairs paired ${read_length_1}+${read_length_2} bp reads..."
+echo "Generating $read_pairs paired ${read_length_1}+${read_length_2} bp reads with $benchmark_threads thread(s)..."
 start_nanoseconds=$(date +%s%N)
 LC_ALL=C "$time_bin" \
     --format='user_seconds=%U\nsystem_seconds=%S\ncpu_percent=%P\nmax_rss_kib=%M' \
     --output="$resource_metrics_file" \
     "$dwgsim_bin" \
     -z "$random_seed" \
+    -t "$benchmark_threads" \
     -N "$read_pairs" \
     -1 "$read_length_1" \
     -2 "$read_length_2" \
@@ -113,6 +116,7 @@ awk \
     -v length_1="$read_length_1" \
     -v length_2="$read_length_2" \
     -v seed="$random_seed" \
+    -v threads="$benchmark_threads" \
     -v elapsed="$elapsed_seconds" \
     -v user="$user_seconds" \
     -v system_cpu="$system_seconds" \
@@ -132,6 +136,7 @@ BEGIN {
     printf "read_length_2=%.0f\n", length_2
     printf "bases=%.0f\n", bases
     printf "seed=%.0f\n", seed
+    printf "threads=%.0f\n", threads
     printf "elapsed_seconds=%.6f\n", elapsed
     printf "user_seconds=%.2f\n", user
     printf "system_seconds=%.2f\n", system_cpu

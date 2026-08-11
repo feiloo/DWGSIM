@@ -18,6 +18,18 @@ make help
 
 `make help` lists the build, test, download, and configurable full-reference targets.
 
+## BGZF FASTQ compression
+
+DWGSIM writes FASTQ files as gzip-compatible BGZF at compression level 1 using the BGZF implementation bundled with this repository. No external `bgzip` executable is required at runtime.
+
+Use `-t` to set the total DWGSIM thread budget, including the main simulation thread and BGZF compression helpers:
+
+```sh
+./dwgsim -t 4 reference.fa output
+```
+
+Helper threads are divided across the active BFAST/BWA output streams rather than created once per file. The default is `-t 1`. See [the BGZF design and validation plan](docs/05_BGZF_FASTQ_Output.md) for implementation details and compatibility notes.
+
 ## Performance benchmark
 
 Run the self-contained reads-only benchmark with:
@@ -33,6 +45,7 @@ The report includes read pairs/s, individual reads/s, bases/s, compressed-output
 ```sh
 make benchmark BENCHMARK_READ_PAIRS=1000000
 make benchmark BENCHMARK_REFERENCE=reference/GRCh38.p14/GCF_000001405.40_GRCh38.p14_genomic.fna
+make benchmark BENCHMARK_THREADS=4
 ```
 
 Use `make help` to list all benchmark variables. Results are most comparable when run on an otherwise idle machine with the same compiler flags, reference, read lengths, and storage.

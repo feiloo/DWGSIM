@@ -1,7 +1,7 @@
 #ifndef DWGSIM_OPT_H
 #define DWGSIM_OPT_H
 
-#include "zlib.h"
+#include "fastq_writer.h"
 
 #define ERROR_RATE_NUM_RANDOM_READS 1000000
 
@@ -41,6 +41,7 @@ typedef struct {
     int32_t use_base_error;
     int32_t is_hap;
     int32_t seed;
+    int32_t compression_threads;
     char *fixed_quality;
     double quality_std;
     char *fn_muts_input;
@@ -48,9 +49,9 @@ typedef struct {
     char *fn_regions_bed;
     FILE *fp_mut;
     FILE *fp_vcf;
-    gzFile fp_bfast;
-    gzFile fp_bwa1;
-    gzFile fp_bwa2;
+    fastq_writer_t *fp_bfast;
+    fastq_writer_t *fp_bwa1;
+    fastq_writer_t *fp_bwa2;
     FILE *fp_fa;
     FILE *fp_fai;
     char *read_prefix;

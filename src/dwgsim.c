@@ -917,10 +917,10 @@ void dwgsim_core(dwgsim_opt_t * opt)
                       }
                       qstr[i] = 0;
                       // BWA
-                      gzFile fpo = (0 == j) ? opt->fp_bwa1: opt->fp_bwa2;
+                      fastq_writer_t *fpo = (0 == j) ? opt->fp_bwa1: opt->fp_bwa2;
                       if (NULL != fpo) {
                         if(ILLUMINA == opt->data_type || IONTORRENT == opt->data_type) {
-                            gzprintf(fpo, "@%s%s%s_%u_%u_%1u_%1u_%1u_%1u_%d:%d:%d_%d:%d:%d_%llx/%d\n", 
+                            fastq_writer_printf(fpo, "@%s%s%s_%u_%u_%1u_%1u_%1u_%1u_%d:%d:%d_%d:%d:%d_%llx/%d\n",
                                     (NULL == opt->read_prefix) ? "" : opt->read_prefix,
                                     (NULL == opt->read_prefix) ? "" : "_",
                                     name, ext_coor[0]+1, ext_coor[1]+1, strand[0], strand[1], 0, 0,
@@ -928,8 +928,8 @@ void dwgsim_core(dwgsim_opt_t * opt)
                                     n_err[1], n_sub[1],n_indel[1],
                                     (unsigned long long)ii, j+1);
                             for (i = 0; i < s[j]; ++i)
-                              gzputc(fpo, "ACGTN"[(int)tmp_seq[j][i]]);
-                            gzprintf(fpo, "\n+\n%s\n", qstr);
+                              fastq_writer_putc(fpo, "ACGTN"[(int)tmp_seq[j][i]]);
+                            fastq_writer_printf(fpo, "\n+\n%s\n", qstr);
                         }
                         else {
                             // Note: BWA ignores the adapter and the first color, so this is a misrepresentation 
@@ -938,26 +938,26 @@ void dwgsim_core(dwgsim_opt_t * opt)
                             //
                             // Note: BWA outputs F3 to read1, annotated as read "2", and outputs R3 to read2,
                             // annotated as read "1".
-                            gzprintf(fpo, "@%s%s%s_%u_%u_%1u_%1u_%1u_%1u_%d:%d:%d_%d:%d:%d_%llx/%d\n", 
+                            fastq_writer_printf(fpo, "@%s%s%s_%u_%u_%1u_%1u_%1u_%1u_%d:%d:%d_%d:%d:%d_%llx/%d\n",
                                     (NULL == opt->read_prefix) ? "" : opt->read_prefix,
                                     (NULL == opt->read_prefix) ? "" : "_",
                                     name, ext_coor[0]+1, ext_coor[1]+1, strand[0], strand[1], 0, 0,
                                     n_err[0] - n_err_first[0], n_sub[0] - n_sub_first[0], n_indel[0] - n_indel_first[0], 
                                     n_err[1] - n_err_first[1], n_sub[1] - n_sub_first[1], n_indel[1] - n_indel_first[1],
                                     (unsigned long long)ii, 2 - j);
-                            //gzputc(fpo, 'A');
+                            //fastq_writer_putc(fpo, 'A');
                             for (i = 1; i < s[j]; ++i)
-                              gzputc(fpo, "ACGTN"[(int)tmp_seq[j][i]]);
-                            gzprintf(fpo, "\n+\n");
+                              fastq_writer_putc(fpo, "ACGTN"[(int)tmp_seq[j][i]]);
+                            fastq_writer_printf(fpo, "\n+\n");
                             for (i = 1; i < s[j]; ++i) 
-                              gzputc(fpo, qstr[i]);
-                            gzprintf(fpo, "\n");
+                              fastq_writer_putc(fpo, qstr[i]);
+                            fastq_writer_printf(fpo, "\n");
                         }
                       }
 
                       // BFAST output
                       if (NULL != opt->fp_bfast) {
-                          gzprintf(opt->fp_bfast, "@%s%s%s_%u_%u_%1u_%1u_%1u_%1u_%d:%d:%d_%d:%d:%d_%llx\n", 
+                          fastq_writer_printf(opt->fp_bfast, "@%s%s%s_%u_%u_%1u_%1u_%1u_%1u_%d:%d:%d_%d:%d:%d_%llx\n",
                                   (NULL == opt->read_prefix) ? "" : opt->read_prefix,
                                   (NULL == opt->read_prefix) ? "" : "_",
                                   name, ext_coor[0]+1, ext_coor[1]+1, strand[0], strand[1], 0, 0,
@@ -965,17 +965,17 @@ void dwgsim_core(dwgsim_opt_t * opt)
                                   (unsigned long long)ii);
                           if(ILLUMINA == opt->data_type || IONTORRENT == opt->data_type) {
                               for (i = 0; i < s[j]; ++i)
-                                gzputc(opt->fp_bfast, "ACGTN"[(int)tmp_seq[j][i]]);
-                              gzprintf(opt->fp_bfast, "\n+\n%s\n", qstr);
+                                fastq_writer_putc(opt->fp_bfast, "ACGTN"[(int)tmp_seq[j][i]]);
+                              fastq_writer_printf(opt->fp_bfast, "\n+\n%s\n", qstr);
                           }
                           else {
-                              gzputc(opt->fp_bfast, 'A');
+                              fastq_writer_putc(opt->fp_bfast, 'A');
                               for (i = 0; i < s[j]; ++i)
-                                gzputc(opt->fp_bfast, "01234"[(int)tmp_seq[j][i]]);
-                              gzprintf(opt->fp_bfast, "\n+\n");
+                                fastq_writer_putc(opt->fp_bfast, "01234"[(int)tmp_seq[j][i]]);
+                              fastq_writer_printf(opt->fp_bfast, "\n+\n");
                               for (i = 0; i < s[j]; ++i) 
-                                gzputc(opt->fp_bfast, qstr[i]);
-                              gzprintf(opt->fp_bfast, "\n");
+                                fastq_writer_putc(opt->fp_bfast, qstr[i]);
+                              fastq_writer_printf(opt->fp_bfast, "\n");
                           }
                       }
                   }
@@ -1031,10 +1031,10 @@ void dwgsim_core(dwgsim_opt_t * opt)
                           }
                       }
                       // BWA
-                      gzFile fpo = (0 == j) ? opt->fp_bwa1: opt->fp_bwa2;
+                      fastq_writer_t *fpo = (0 == j) ? opt->fp_bwa1: opt->fp_bwa2;
                       if (NULL != fpo) {
                           if(ILLUMINA == opt->data_type || IONTORRENT == opt->data_type) {
-                              gzprintf(fpo, "@%s%s%s_%u_%u_%1u_%1u_%1u_%1u_%d:%d:%d_%d:%d:%d_%llx/%d\n", 
+                              fastq_writer_printf(fpo, "@%s%s%s_%u_%u_%1u_%1u_%1u_%1u_%d:%d:%d_%d:%d:%d_%llx/%d\n",
                                       (NULL == opt->read_prefix) ? "" : opt->read_prefix,
                                       (NULL == opt->read_prefix) ? "" : "_",
                                       "rand", 0, 0, 0, 0, 1, 1,
@@ -1042,8 +1042,8 @@ void dwgsim_core(dwgsim_opt_t * opt)
                                       (unsigned long long)rand_ii,
                                       j+1);
                               for (i = 0; i < s[j]; ++i)
-                                gzputc(fpo, "ACGTN"[(int)tmp_seq[j][i]]);
-                              gzprintf(fpo, "\n+\n%s\n", qstr);
+                                fastq_writer_putc(fpo, "ACGTN"[(int)tmp_seq[j][i]]);
+                              fastq_writer_printf(fpo, "\n+\n%s\n", qstr);
                           }
                           else {
                               // Note: BWA ignores the adapter and the first color, so this is a misrepresentation 
@@ -1052,26 +1052,26 @@ void dwgsim_core(dwgsim_opt_t * opt)
                               //
                               // Note: BWA outputs F3 to read1, annotated as read "2", and outputs R3 to read2,
                               // annotated as read "1".
-                              gzprintf(fpo, "@%s%s%s_%u_%u_%1u_%1u_%1u_%1u_%d:%d:%d_%d:%d:%d_%llx/%d\n", 
+                              fastq_writer_printf(fpo, "@%s%s%s_%u_%u_%1u_%1u_%1u_%1u_%d:%d:%d_%d:%d:%d_%llx/%d\n",
                                       (NULL == opt->read_prefix) ? "" : opt->read_prefix,
                                       (NULL == opt->read_prefix) ? "" : "_",
                                       "rand", 0, 0, 0, 0, 1, 1,
                                       0, 0, 0, 0, 0, 0,
                                       (unsigned long long)rand_ii,
                                       2 - j);
-                              //gzputc(fpo, 'A');
+                              //fastq_writer_putc(fpo, 'A');
                               for (i = 1; i < s[j]; ++i)
-                                gzputc(fpo, "ACGTN"[(int)tmp_seq[j][i]]);
-                              gzprintf(fpo, "\n+\n");
+                                fastq_writer_putc(fpo, "ACGTN"[(int)tmp_seq[j][i]]);
+                              fastq_writer_printf(fpo, "\n+\n");
                               for (i = 1; i < s[j]; ++i) 
-                                gzputc(fpo, qstr[i]);
-                              gzprintf(fpo, "\n");
+                                fastq_writer_putc(fpo, qstr[i]);
+                              fastq_writer_printf(fpo, "\n");
                           }
                       }
 
                       // BFAST output
                       if (NULL != opt->fp_bfast) {
-                          gzprintf(opt->fp_bfast, "@%s%s%s_%u_%u_%1u_%1u_%1u_%1u_%d:%d:%d_%d:%d:%d_%llx\n", 
+                          fastq_writer_printf(opt->fp_bfast, "@%s%s%s_%u_%u_%1u_%1u_%1u_%1u_%d:%d:%d_%d:%d:%d_%llx\n",
                                   (NULL == opt->read_prefix) ? "" : opt->read_prefix,
                                   (NULL == opt->read_prefix) ? "" : "_",
                                   "rand", 0, 0, 0, 0, 1, 1,
@@ -1079,17 +1079,17 @@ void dwgsim_core(dwgsim_opt_t * opt)
                                   (unsigned long long)rand_ii);
                           if(ILLUMINA == opt->data_type || IONTORRENT == opt->data_type) {
                               for (i = 0; i < s[j]; ++i)
-                                gzputc(opt->fp_bfast, "ACGTN"[(int)tmp_seq[j][i]]);
-                              gzprintf(opt->fp_bfast, "\n+\n%s\n", qstr);
+                                fastq_writer_putc(opt->fp_bfast, "ACGTN"[(int)tmp_seq[j][i]]);
+                              fastq_writer_printf(opt->fp_bfast, "\n+\n%s\n", qstr);
                           }
                           else {
-                              gzputc(opt->fp_bfast, 'A');
+                              fastq_writer_putc(opt->fp_bfast, 'A');
                               for (i = 0; i < s[j]; ++i)
-                                gzputc(opt->fp_bfast, "01234"[(int)tmp_seq[j][i]]);
-                              gzprintf(opt->fp_bfast, "\n+\n");
+                                fastq_writer_putc(opt->fp_bfast, "01234"[(int)tmp_seq[j][i]]);
+                              fastq_writer_printf(opt->fp_bfast, "\n+\n");
                               for (i = 0; i < s[j]; ++i) 
-                                gzputc(opt->fp_bfast, qstr[i]);
-                              gzprintf(opt->fp_bfast, "\n");
+                                fastq_writer_putc(opt->fp_bfast, qstr[i]);
+                              fastq_writer_printf(opt->fp_bfast, "\n");
                           }
                       }
                   }
@@ -1120,9 +1120,30 @@ void dwgsim_core(dwgsim_opt_t * opt)
   }
 }
 
+static fastq_writer_t *
+dwgsim_fastq_writer_open(const char *path, int total_threads,
+                         int stream_count, int stream_index)
+{
+  int stream_threads = fastq_writer_threads_for_stream(total_threads,
+                                                       stream_count,
+                                                       stream_index);
+  fastq_writer_t *writer = fastq_writer_open(path, stream_threads);
+
+  if(NULL == writer) {
+      fprintf(stderr, "Error: could not open BGZF FASTQ output: %s\n",
+              path);
+      exit(1);
+  }
+
+  return writer;
+}
+
 int main(int argc, char *argv[])
 {
   dwgsim_opt_t *opt = NULL;
+  int output_streams = 0;
+  int output_stream_index = 0;
+  int exit_status = 0;
 
   // update the mutant sequence bounds
   mutseq_init_bounds();
@@ -1134,6 +1155,14 @@ int main(int argc, char *argv[])
 
   if(0 == dwgsim_opt_parse(opt, argc, argv)) {
       return dwgsim_opt_usage(opt);
+  }
+  if(opt->output_type != OUTPUT_TYPE_MUTS) {
+      if(opt->reads_output_type != READS_OUTPUT_TYPE_BWA) {
+          output_streams++;
+      }
+      if(opt->reads_output_type != READS_OUTPUT_TYPE_BFAST) {
+          output_streams += 2;
+      }
   }
 
   // Open files
@@ -1149,13 +1178,19 @@ int main(int argc, char *argv[])
   if(opt->output_type != OUTPUT_TYPE_MUTS) {
       if (opt->reads_output_type != READS_OUTPUT_TYPE_BWA) {
           snprintf(fn_tmp, sizeof(fn_tmp), "%s.bfast.fastq.gz", argv[optind+1]);
-          opt->fp_bfast = gzopen(fn_tmp, "w");
+          opt->fp_bfast = dwgsim_fastq_writer_open(
+              fn_tmp, opt->compression_threads, output_streams,
+              output_stream_index++);
       }
       if (opt->reads_output_type != READS_OUTPUT_TYPE_BFAST) {
           snprintf(fn_tmp, sizeof(fn_tmp), "%s.bwa.read1.fastq.gz", argv[optind+1]);
-          opt->fp_bwa1 = gzopen(fn_tmp, "w");
+          opt->fp_bwa1 = dwgsim_fastq_writer_open(
+              fn_tmp, opt->compression_threads, output_streams,
+              output_stream_index++);
           snprintf(fn_tmp, sizeof(fn_tmp), "%s.bwa.read2.fastq.gz", argv[optind+1]);
-          opt->fp_bwa2 = gzopen(fn_tmp, "w");
+          opt->fp_bwa2 = dwgsim_fastq_writer_open(
+              fn_tmp, opt->compression_threads, output_streams,
+              output_stream_index++);
       }
   }
 
@@ -1170,15 +1205,25 @@ int main(int argc, char *argv[])
   }
   if(opt->output_type != OUTPUT_TYPE_MUTS) {
       if (opt->reads_output_type != READS_OUTPUT_TYPE_BWA) {
-          gzclose(opt->fp_bfast);
+          if(0 != fastq_writer_close(opt->fp_bfast)) {
+              fprintf(stderr, "Error: failed to close BFAST BGZF output\n");
+              exit_status = 1;
+          }
       }
       if (opt->reads_output_type != READS_OUTPUT_TYPE_BFAST) {
-          gzclose(opt->fp_bwa1); gzclose(opt->fp_bwa2);
+          if(0 != fastq_writer_close(opt->fp_bwa1)) {
+              fprintf(stderr, "Error: failed to close BWA read-one BGZF output\n");
+              exit_status = 1;
+          }
+          if(0 != fastq_writer_close(opt->fp_bwa2)) {
+              fprintf(stderr, "Error: failed to close BWA read-two BGZF output\n");
+              exit_status = 1;
+          }
       }
       fclose(opt->fp_fa);
   }
 
   dwgsim_opt_destroy(opt);
 
-  return 0;
+  return exit_status;
 }

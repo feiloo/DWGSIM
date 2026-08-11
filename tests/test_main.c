@@ -6,6 +6,7 @@
  */
 
 #include "test_framework.h"
+#include "fastq_writer.h"
 
 /* Include test files here as they are added */
 /* #include "test_position.c" */
@@ -57,6 +58,22 @@ TEST(test_framework_assert_null) {
     ASSERT_NOT_NULL(&val);
 }
 
+TEST(fastq_writer_thread_distribution) {
+    ASSERT_EQ(1, fastq_writer_threads_for_stream(1, 2, 0));
+    ASSERT_EQ(1, fastq_writer_threads_for_stream(1, 2, 1));
+
+    ASSERT_EQ(3, fastq_writer_threads_for_stream(4, 2, 0));
+    ASSERT_EQ(2, fastq_writer_threads_for_stream(4, 2, 1));
+
+    ASSERT_EQ(2, fastq_writer_threads_for_stream(4, 3, 0));
+    ASSERT_EQ(2, fastq_writer_threads_for_stream(4, 3, 1));
+    ASSERT_EQ(2, fastq_writer_threads_for_stream(4, 3, 2));
+
+    ASSERT_EQ(0, fastq_writer_threads_for_stream(0, 2, 0));
+    ASSERT_EQ(0, fastq_writer_threads_for_stream(1, 0, 0));
+    ASSERT_EQ(0, fastq_writer_threads_for_stream(1, 2, 2));
+}
+
 int main(void) {
     printf("DWGSIM Unit Tests\n");
     printf("========================================\n");
@@ -69,6 +86,9 @@ int main(void) {
     RUN_TEST(test_framework_assert_float_eq);
     RUN_TEST(test_framework_assert_comparisons);
     RUN_TEST(test_framework_assert_null);
+
+    TEST_SUITE("BGZF FASTQ writer");
+    RUN_TEST(fastq_writer_thread_distribution);
 
     /* Add test suites here as they are created */
     /* TEST_SUITE("Position Calculation Tests"); */

@@ -148,6 +148,12 @@ The above shows a two base homozygous deletion of positions 22 and 23 on the sec
 
 Three FASTQ files are produced, for use with BFAST (interleaved FASTQ) and BWA (one FASTQ per read end).
 
+FASTQ output uses gzip-compatible BGZF compression at level 1. Ordinary gzip readers continue to work; BGZF-aware tools can also process the independent compressed blocks.
+
+Use `-t INT` to set the total thread budget for the main DWGSIM thread and BGZF compression helpers. Helpers are distributed across the active output streams, and the default is `-t 1`. Read simulation itself remains single-threaded.
+
+The implementation and validation strategy are documented in [BGZF FASTQ output plan](05_BGZF_FASTQ_Output.md).
+
 The FASTQ for BFAST is formatted so that the multi-end reads (paired end or mate pair) occur consecutively in the FASTQ (interleaved), with the read that is 5' of the other listed first.
 For paired end reads, this means that E1 is always listed before E2.
 For mate pair reads, this means that E2 is always listed before E1.

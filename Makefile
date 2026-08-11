@@ -1,11 +1,11 @@
 .DEFAULT_GOAL := all
 
-PACKAGE_VERSION="0.1.17-dev"
+PACKAGE_VERSION=0.1.17-dev
 CC=			gcc
 CFLAGS=		-g -Wall -O3 #-m64 #-arch ppc
-DFLAGS=		-D_FILE_OFFSET_BITS=64 -D_LARGEFILE64_SOURCE -D_USE_KNETFILE -DPACKAGE_VERSION=\\\"${PACKAGE_VERSION}\\\"
+DFLAGS=		-D_FILE_OFFSET_BITS=64 -D_LARGEFILE64_SOURCE -D_USE_KNETFILE -DPACKAGE_VERSION=\"$(PACKAGE_VERSION)\"
 DWGSIM_AOBJS = src/dwgsim_opt.o src/mut.o src/contigs.o src/regions_bed.o \
-			   src/mut_txt.o src/mut_bed.o src/mut_vcf.o src/mut_input.o src/dwgsim.o
+			   src/mut_txt.o src/mut_bed.o src/mut_vcf.o src/mut_input.o src/fastq_writer.o src/dwgsim.o
 DWGSIM_EVAL_AOBJS = src/dwgsim_eval.o \
 					samtools/knetfile.o \
 					samtools/bgzf.o samtools/kstring.o samtools/bam_aux.o samtools/bam.o samtools/bam_import.o samtools/sam.o samtools/bam_index.o \
@@ -41,6 +41,7 @@ BENCHMARK_READ_PAIRS ?= 250000
 BENCHMARK_READ_LENGTH_1 ?= 100
 BENCHMARK_READ_LENGTH_2 ?= 100
 BENCHMARK_SEED ?= 13
+BENCHMARK_THREADS ?= 1
 
 .SUFFIXES:.c .o
 
@@ -63,9 +64,12 @@ src/dwgsim_mut_to_vcf.o: src/dwgsim_mut_to_vcf.c
 src/dwgsim_pileup_eval.o: src/dwgsim_pileup_eval.c
 	$(CC) -c $(CFLAGS) $(INCLUDES) $< -o $@
 
+src/fastq_writer.o: src/fastq_writer.c src/fastq_writer.h samtools/bgzf.h
+	$(CC) -c $(CFLAGS) $(DFLAGS) $(INCLUDES) $< -o $@
+
 all:$(PROG)
 
-.PHONY:all lib clean cleanlocal test test-unit test-integration clean-tests help
+.PHONY:all lib clean cleanlocal test test-unit test-integration test-bgzf clean-tests help
 .PHONY:download download-human-reference test-human-reference
 .PHONY:benchmark
 .PHONY:all-recur lib-recur clean-recur cleanlocal-recur install-recur
@@ -74,8 +78,9 @@ help:
 	@printf 'Usage: make <target> [VARIABLE=value]\n\n'
 	@printf 'Build and test targets:\n'
 	@printf '  %-26s %s\n' 'all' 'Build all DWGSIM executables (default).'
-	@printf '  %-26s %s\n' 'test' 'Run unit and integration tests.'
+	@printf '  %-26s %s\n' 'test' 'Run unit, integration, and BGZF output tests.'
 	@printf '  %-26s %s\n' 'benchmark' 'Measure reads-only simulation throughput and resource use.'
+	@printf '  %-26s %s\n' 'test-bgzf' 'Test BGZF compatibility, modes, and thread determinism.'
 	@printf '  %-26s %s\n' 'download' 'Download and verify the full NCBI GRCh38.p14 reference.'
 	@printf '  %-26s %s\n' 'test-human-reference' 'Run the reads-only DWGSIM smoke test on full GRCh38.p14.'
 	@printf '  %-26s %s\n' 'clean' 'Remove compiled programs, objects, and regular test artifacts.'
@@ -86,6 +91,7 @@ help:
 	@printf '  %-30s %s\n' 'BENCHMARK_READ_LENGTH_1=...' 'First-read length (default: $(BENCHMARK_READ_LENGTH_1)).'
 	@printf '  %-30s %s\n' 'BENCHMARK_READ_LENGTH_2=...' 'Second-read length (default: $(BENCHMARK_READ_LENGTH_2)).'
 	@printf '  %-30s %s\n' 'BENCHMARK_SEED=...' 'Random seed (default: $(BENCHMARK_SEED)).'
+	@printf '  %-30s %s\n' 'BENCHMARK_THREADS=...' 'DWGSIM thread budget (default: $(BENCHMARK_THREADS)).'
 	@printf '  %-30s %s\n' 'BENCHMARK_DIR=...' 'Output and report directory (default: $(BENCHMARK_DIR)).'
 	@printf '\nHuman-reference settings:\n'
 	@printf '  %-26s %s\n' 'HUMAN_REFERENCE_DIR=...' 'Reference destination (default: $(HUMAN_REFERENCE_DIR)).'
@@ -114,11 +120,12 @@ benchmark: dwgsim
 		BENCHMARK_READ_LENGTH_1="$(BENCHMARK_READ_LENGTH_1)" \
 		BENCHMARK_READ_LENGTH_2="$(BENCHMARK_READ_LENGTH_2)" \
 		BENCHMARK_SEED="$(BENCHMARK_SEED)" \
+		BENCHMARK_THREADS="$(BENCHMARK_THREADS)" \
 		/bin/bash scripts/benchmark.sh \
 		"$(BENCHMARK_REFERENCE)" "$(BENCHMARK_DIR)"
 
 dwgsim:lib-recur $(DWGSIM_AOBJS)
-	$(CC) $(CFLAGS) -o $@ $(DWGSIM_AOBJS) -lm -lz -lpthread
+	$(CC) $(CFLAGS) -o $@ $(DWGSIM_AOBJS) samtools/libbam.a -lm -lz -lpthread
 
 dwgsim_eval:lib-recur $(DWGSIM_EVAL_AOBJS)
 	$(CC) $(CFLAGS) -o $@ $(DWGSIM_EVAL_AOBJS) -Lsamtools -lm -lz -lpthread
@@ -159,23 +166,29 @@ dist:clean
 	gzip -9 dwgsim-${PACKAGE_VERSION}.tar; \
 	rm -rv dwgsim-${PACKAGE_VERSION};
 
-# Run all tests (unit + integration)
-test: test-unit test-integration
+# Run all tests
+test: test-unit test-integration test-bgzf
 
 # Integration tests
-test-integration:
+test-integration: dwgsim
 	if [ -d tmp ]; then rm -r tmp; fi
 	/bin/bash testdata/test.sh
 
+# BGZF output tests
+test-bgzf: dwgsim
+	$(MAKE) -C samtools bgzip
+	DWGSIM_BIN="$(DWGSIM_BIN)" BGZIP_BIN="./samtools/bgzip" \
+		/bin/bash tests/test_bgzf_output.sh "$(BENCHMARK_REFERENCE)"
+
 # Unit test target
-TEST_OBJS = tests/test_main.o
+TEST_OBJS = tests/test_main.o src/fastq_writer.o
 TEST_PROG = tests/run_tests
 
-tests/test_main.o: tests/test_main.c tests/test_framework.h
+tests/test_main.o: tests/test_main.c tests/test_framework.h src/fastq_writer.h
 	$(CC) -c $(CFLAGS) $(DFLAGS) -I. -Isrc tests/test_main.c -o $@
 
-$(TEST_PROG): $(TEST_OBJS)
-	$(CC) $(CFLAGS) -o $@ $(TEST_OBJS) -lm
+$(TEST_PROG): lib-recur $(TEST_OBJS)
+	$(CC) $(CFLAGS) -o $@ $(TEST_OBJS) samtools/libbam.a -lm -lz -lpthread
 
 test-unit: $(TEST_PROG)
 	./$(TEST_PROG)
