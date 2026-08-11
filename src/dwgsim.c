@@ -1170,10 +1170,10 @@ int main(int argc, char *argv[])
       return dwgsim_opt_usage(opt);
   }
 
-  if(opt->matched &&
+  if((opt->matched || opt->tumor_only) &&
      !dwgsim_parallel_wgs_supported(opt, argv[optind])) {
       fprintf(stderr,
-              "Error: matched mode requires a readable indexed FASTA "
+              "Error: matched/tumor-only mode requires a readable indexed FASTA "
               "(<reference>.fai) and the supported paired-WGS profile\n");
       dwgsim_opt_destroy(opt);
       return 1;

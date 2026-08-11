@@ -21,6 +21,7 @@
 
 #define PARALLEL_FORMAT_VERSION 1
 #define MATCHED_FORMAT_VERSION 1
+#define TUMOR_ONLY_FORMAT_VERSION 1
 #define PAIRS_PER_TASK 8192U
 #define MAX_FRAGMENT_ATTEMPTS 10000U
 #define MAX_VARIANT_LENGTH 1048576U
@@ -122,6 +123,7 @@ typedef struct {
     const task_manifest_t *tasks;
     result_slot_t *slots;
     size_t window;
+    unsigned samples[MAX_SAMPLES];
     unsigned sample_count;
     unsigned stream_count;
     uint64_t next_claim;
@@ -993,15 +995,17 @@ allocate_pairs(reference_manifest_t *manifest, uint64_t requested_pairs,
 }
 
 static void
-discard_unused_contigs(reference_manifest_t *manifest, unsigned sample_count)
+discard_unused_contigs(reference_manifest_t *manifest,
+                       const unsigned *samples, unsigned sample_count)
 {
     size_t contig_index;
 
     for(contig_index = 0; contig_index < manifest->count; ++contig_index) {
         reference_contig_t *contig = &manifest->contigs[contig_index];
-        unsigned sample;
+        unsigned sample_slot;
         int used = 0;
-        for(sample = 0; sample < sample_count; ++sample) {
+        for(sample_slot = 0; sample_slot < sample_count; ++sample_slot) {
+            unsigned sample = samples[sample_slot];
             if(0 < contig->pair_count[sample]) used = 1;
         }
         if(!used) {
@@ -1013,7 +1017,8 @@ discard_unused_contigs(reference_manifest_t *manifest, unsigned sample_count)
 
 static int
 build_tasks(const reference_manifest_t *reference,
-            task_manifest_t *manifest, unsigned sample_count)
+            task_manifest_t *manifest, const unsigned *samples,
+            unsigned sample_count)
 {
     size_t task_count = 0;
     size_t task_index = 0;
@@ -1021,8 +1026,9 @@ build_tasks(const reference_manifest_t *reference,
 
     for(contig_index = 0; contig_index < reference->count; ++contig_index) {
         uint64_t count = 0;
-        unsigned sample;
-        for(sample = 0; sample < sample_count; ++sample) {
+        unsigned sample_slot;
+        for(sample_slot = 0; sample_slot < sample_count; ++sample_slot) {
+            unsigned sample = samples[sample_slot];
             uint64_t pairs = reference->contigs[contig_index].pair_count[sample];
             uint64_t sample_tasks =
                 (pairs + PAIRS_PER_TASK - 1) / PAIRS_PER_TASK;
@@ -1041,8 +1047,9 @@ build_tasks(const reference_manifest_t *reference,
     for(contig_index = 0; contig_index < reference->count; ++contig_index) {
         uint64_t task_ordinal;
         uint64_t contig_tasks = 0;
-        unsigned sample;
-        for(sample = 0; sample < sample_count; ++sample) {
+        unsigned sample_slot;
+        for(sample_slot = 0; sample_slot < sample_count; ++sample_slot) {
+            unsigned sample = samples[sample_slot];
             uint64_t pairs = reference->contigs[contig_index].pair_count[sample];
             uint64_t sample_tasks =
                 (pairs + PAIRS_PER_TASK - 1) / PAIRS_PER_TASK;
@@ -1052,7 +1059,8 @@ build_tasks(const reference_manifest_t *reference,
             pair_task_t *task = &manifest->tasks[task_index];
             task->id = task_index;
             task->contig_index = (uint32_t)contig_index;
-            for(sample = 0; sample < sample_count; ++sample) {
+            for(sample_slot = 0; sample_slot < sample_count; ++sample_slot) {
+                unsigned sample = samples[sample_slot];
                 uint64_t pairs = reference->contigs[contig_index].pair_count[sample];
                 uint64_t first_pair = task_ordinal * PAIRS_PER_TASK;
                 uint64_t remaining = first_pair < pairs ? pairs - first_pair : 0;
@@ -1353,7 +1361,8 @@ append_fastq_record(byte_buffer_t *output, const dwgsim_opt_t *opt,
             "@%s%s%s%s_%" PRIu64 "_%" PRIu64 "_%d_%d_0_0_%d:%d:%d_%d:%d:%d_%" PRIx64 "/%d\n",
             NULL == opt->read_prefix ? "" : opt->read_prefix,
             NULL == opt->read_prefix ? "" : "_",
-            opt->matched ? (SAMPLE_NORMAL == sample ? "normal_" : "tumor_") : "",
+            (opt->matched || opt->tumor_only) ?
+                (SAMPLE_NORMAL == sample ? "normal_" : "tumor_") : "",
             contig->name, coordinate1 + 1, coordinate2 + 1,
             strand1, strand2,
             errors1, substitutions1, indels1,
@@ -1586,7 +1595,7 @@ generate_task(const pipeline_t *pipeline, const pair_task_t *task)
     uint8_t *read2 = NULL;
     char *quality1 = NULL;
     char *quality2 = NULL;
-    unsigned sample;
+    unsigned sample_slot;
     unsigned stream;
 
     result = calloc(1, sizeof(*result));
@@ -1598,7 +1607,9 @@ generate_task(const pipeline_t *pipeline, const pair_task_t *task)
        NULL == quality1 || NULL == quality2) goto error;
 
     result->task_id = task->id;
-    for(sample = 0; sample < pipeline->sample_count; ++sample) {
+    for(sample_slot = 0; sample_slot < pipeline->sample_count;
+        ++sample_slot) {
+        unsigned sample = pipeline->samples[sample_slot];
         uint32_t index;
         result->pair_count[sample] = task->pair_count[sample];
         for(index = 0; index < task->pair_count[sample]; ++index) {
@@ -1606,8 +1617,8 @@ generate_task(const pipeline_t *pipeline, const pair_task_t *task)
             if(0 != generate_pair(pipeline->opt, contig, task->contig_index,
                                   pair_index, sample, read1, read2,
                                   quality1, quality2,
-                                  &raw[sample * 2],
-                                  &raw[sample * 2 + 1])) goto error;
+                                  &raw[sample_slot * 2],
+                                  &raw[sample_slot * 2 + 1])) goto error;
         }
     }
 
@@ -1785,7 +1796,8 @@ static int
 run_pipeline(const dwgsim_opt_t *opt,
              const reference_manifest_t *reference,
              const task_manifest_t *tasks,
-             FILE **outputs, unsigned sample_count)
+             FILE **outputs, const unsigned *samples,
+             unsigned sample_count)
 {
     pipeline_t pipeline;
     appender_arg_t appender[MAX_STREAMS];
@@ -1801,6 +1813,24 @@ run_pipeline(const dwgsim_opt_t *opt,
     pipeline.opt = opt;
     pipeline.reference = reference;
     pipeline.tasks = tasks;
+    if(NULL == samples || 0 == sample_count || MAX_SAMPLES < sample_count) {
+        for(index = 0; index < sample_count * 2 && index < MAX_STREAMS;
+            ++index) {
+            if(NULL != outputs[index]) fclose(outputs[index]);
+        }
+        return -1;
+    }
+    for(index = 0; index < sample_count; ++index) {
+        if(MAX_SAMPLES <= samples[index]) {
+            size_t output_index;
+            for(output_index = 0; output_index < sample_count * 2;
+                ++output_index) {
+                if(NULL != outputs[output_index]) fclose(outputs[output_index]);
+            }
+            return -1;
+        }
+        pipeline.samples[index] = samples[index];
+    }
     pipeline.sample_count = sample_count;
     pipeline.stream_count = sample_count * 2;
     pipeline.window = worker_count * 2;
@@ -2122,27 +2152,31 @@ publish_outputs(const char *staging1, const char *staging2,
 }
 
 static int
-publish_matched_outputs(char **staging, char **outputs,
+publish_variant_outputs(char **staging, char **outputs,
+                        const char *const *stream_names,
+                        unsigned stream_count,
                         char **truth_staging, char **truth_outputs,
                         const char *manifest_path,
                         const char *manifest_staging,
                         const dwgsim_opt_t *opt, size_t task_count,
                         uint64_t germline_count, uint64_t somatic_count)
 {
-    static const char *stream_names[MAX_STREAMS] = {
-        "normal_read1", "normal_read2", "tumor_read1", "tumor_read2"
-    };
     struct stat stream_stats[MAX_STREAMS];
     struct stat truth_stats[2];
+    const char *format_name = opt->tumor_only ? "tumor-only" : "matched";
+    const char *log_tag = opt->tumor_only ?
+                          "[dwgsim_tumor]" : "[dwgsim_matched]";
+    int format_version = opt->tumor_only ?
+                         TUMOR_ONLY_FORMAT_VERSION : MATCHED_FORMAT_VERSION;
     FILE *manifest = NULL;
     unsigned renamed_streams = 0;
     unsigned renamed_truth = 0;
     unsigned index;
     int status = -1;
 
-    for(index = 0; index < MAX_STREAMS; ++index) {
+    for(index = 0; index < stream_count; ++index) {
         if(0 != rename(staging[index], outputs[index])) {
-            fprintf(stderr, "[dwgsim_matched] cannot publish %s: %s\n",
+            fprintf(stderr, "%s cannot publish %s: %s\n", log_tag,
                     outputs[index], strerror(errno));
             goto cleanup;
         }
@@ -2150,13 +2184,13 @@ publish_matched_outputs(char **staging, char **outputs,
     }
     for(index = 0; index < 2; ++index) {
         if(0 != rename(truth_staging[index], truth_outputs[index])) {
-            fprintf(stderr, "[dwgsim_matched] cannot publish %s: %s\n",
+            fprintf(stderr, "%s cannot publish %s: %s\n", log_tag,
                     truth_outputs[index], strerror(errno));
             goto cleanup;
         }
         renamed_truth++;
     }
-    for(index = 0; index < MAX_STREAMS; ++index) {
+    for(index = 0; index < stream_count; ++index) {
         if(0 != stat(outputs[index], &stream_stats[index])) goto cleanup;
     }
     for(index = 0; index < 2; ++index) {
@@ -2166,7 +2200,7 @@ publish_matched_outputs(char **staging, char **outputs,
     manifest = fopen(manifest_staging, "w");
     if(NULL == manifest ||
        0 > fprintf(manifest,
-                   "format=dwgsim-deterministic-matched-v%d\n"
+                   "format=dwgsim-deterministic-%s-v%d\n"
                    "seed=%d\nnormal_read_pairs=%" PRId64 "\n"
                    "tumor_read_pairs=%" PRId64 "\nthreads=%d\n"
                    "compression_level=%d\ntasks=%zu\n"
@@ -2175,14 +2209,14 @@ publish_matched_outputs(char **staging, char **outputs,
                    "tumor_expected_vaf=%.17g\n"
                    "germline_variants=%" PRIu64 "\n"
                    "somatic_variants=%" PRIu64 "\n",
-                   MATCHED_FORMAT_VERSION, opt->seed,
+                   format_name, format_version, opt->seed,
                    opt->normal_pairs, opt->tumor_pairs,
                    opt->compression_threads, opt->compression_level,
                    task_count, opt->mut_rate, opt->somatic_rate,
                    opt->tumor_vaf, germline_count, somatic_count)) {
         goto cleanup;
     }
-    for(index = 0; index < MAX_STREAMS; ++index) {
+    for(index = 0; index < stream_count; ++index) {
         if(0 > fprintf(manifest, "%s_bytes=%" PRIu64 "\n",
                        stream_names[index],
                        (uint64_t)stream_stats[index].st_size)) goto cleanup;
@@ -2228,11 +2262,12 @@ dwgsim_parallel_wgs_supported(const dwgsim_opt_t *opt,
        0 == strcmp(reference_path, "-")) {
         return 0;
     }
-    if(opt->matched) {
+    if(opt->matched || opt->tumor_only) {
         if(OUTPUT_TYPE_ALL != opt->output_type ||
            READS_OUTPUT_TYPE_BWA != opt->reads_output_type ||
            0 != opt->data_type || 0 >= opt->length[1] ||
-           opt->normal_pairs <= 0 || opt->tumor_pairs <= 0 ||
+           (opt->matched && opt->normal_pairs <= 0) ||
+           opt->tumor_pairs <= 0 ||
            NULL != opt->fn_muts_input || 0.0 != opt->rand_read ||
            NULL != opt->fn_regions_bed || opt->amplicons ||
            opt->is_inner || opt->is_hap ||
@@ -2259,15 +2294,25 @@ dwgsim_parallel_wgs_supported(const dwgsim_opt_t *opt,
 }
 
 static int
-run_matched_wgs(const dwgsim_opt_t *opt,
+run_variant_wgs(const dwgsim_opt_t *opt,
                 const char *reference_path,
                 const char *output_prefix)
 {
-    static const char *stream_suffixes[MAX_STREAMS] = {
+    static const char *matched_stream_suffixes[MAX_STREAMS] = {
         ".normal.bwa.read1.fastq.gz",
         ".normal.bwa.read2.fastq.gz",
         ".tumor.bwa.read1.fastq.gz",
         ".tumor.bwa.read2.fastq.gz"
+    };
+    static const char *tumor_stream_suffixes[2] = {
+        ".tumor.bwa.read1.fastq.gz",
+        ".tumor.bwa.read2.fastq.gz"
+    };
+    static const char *matched_stream_names[MAX_STREAMS] = {
+        "normal_read1", "normal_read2", "tumor_read1", "tumor_read2"
+    };
+    static const char *tumor_stream_names[2] = {
+        "tumor_read1", "tumor_read2"
     };
     static const char *truth_suffixes[2] = {
         ".germline.vcf", ".somatic.vcf"
@@ -2279,6 +2324,15 @@ run_matched_wgs(const dwgsim_opt_t *opt,
     char *truth_outputs[2] = {0};
     char *truth_staging[2] = {0};
     FILE *files[MAX_STREAMS] = {0};
+    unsigned active_samples[MAX_SAMPLES];
+    const char *const *stream_suffixes;
+    const char *const *stream_names;
+    const char *manifest_suffix;
+    const char *mode_name;
+    const char *log_tag;
+    unsigned sample_count;
+    unsigned stream_count;
+    int format_version;
     char *manifest_path = NULL;
     char *manifest_staging = NULL;
     char staging_suffix[64];
@@ -2291,10 +2345,34 @@ run_matched_wgs(const dwgsim_opt_t *opt,
     unsigned index;
     int status = 1;
 
+    if(opt->tumor_only) {
+        active_samples[0] = SAMPLE_TUMOR;
+        sample_count = 1;
+        stream_count = 2;
+        stream_suffixes = tumor_stream_suffixes;
+        stream_names = tumor_stream_names;
+        manifest_suffix = ".tumor-only.complete";
+        mode_name = "tumor-only";
+        log_tag = "[dwgsim_tumor]";
+        format_version = TUMOR_ONLY_FORMAT_VERSION;
+    }
+    else {
+        active_samples[0] = SAMPLE_NORMAL;
+        active_samples[1] = SAMPLE_TUMOR;
+        sample_count = MAX_SAMPLES;
+        stream_count = MAX_STREAMS;
+        stream_suffixes = matched_stream_suffixes;
+        stream_names = matched_stream_names;
+        manifest_suffix = ".matched.complete";
+        mode_name = "matched";
+        log_tag = "[dwgsim_matched]";
+        format_version = MATCHED_FORMAT_VERSION;
+    }
+
     clock_gettime(CLOCK_MONOTONIC, &start);
     snprintf(staging_suffix, sizeof(staging_suffix), ".partial.%ld",
              (long)getpid());
-    for(index = 0; index < MAX_STREAMS; ++index) {
+    for(index = 0; index < stream_count; ++index) {
         outputs[index] = path_with_suffix(output_prefix, stream_suffixes[index]);
         if(NULL != outputs[index]) {
             staging[index] = path_with_suffix(outputs[index], staging_suffix);
@@ -2312,7 +2390,7 @@ run_matched_wgs(const dwgsim_opt_t *opt,
             goto cleanup;
         }
     }
-    manifest_path = path_with_suffix(output_prefix, ".matched.complete");
+    manifest_path = path_with_suffix(output_prefix, manifest_suffix);
     if(NULL != manifest_path) {
         manifest_staging = path_with_suffix(manifest_path, staging_suffix);
     }
@@ -2320,66 +2398,78 @@ run_matched_wgs(const dwgsim_opt_t *opt,
     unlink(manifest_path);
 
     fprintf(stderr,
-            "[dwgsim_matched] deterministic matched v%d, %d workers, "
-            "BGZF level %d\n",
-            MATCHED_FORMAT_VERSION, opt->compression_threads,
+            "%s deterministic %s v%d, %d workers, BGZF level %d\n",
+            log_tag, mode_name, format_version, opt->compression_threads,
             opt->compression_level);
     if(0 != read_reference_manifest(reference_path, &reference)) goto cleanup;
-    fprintf(stderr, "[dwgsim_matched] %zu sequences, total length: %" PRIu64
-                    "\n", reference.count, reference.total_length);
+    fprintf(stderr, "%s %zu sequences, total length: %" PRIu64 "\n",
+            log_tag, reference.count, reference.total_length);
     if(0 != prepare_reference(opt, reference_path, &reference) ||
        0 != prepare_variants(opt, &reference) ||
        0 != write_truth_vcfs(&reference, opt,
                              truth_staging[0], truth_staging[1],
                              &germline_count, &somatic_count) ||
-       0 != allocate_pairs(&reference, (uint64_t)opt->normal_pairs,
-                           SAMPLE_NORMAL) ||
+       (opt->matched &&
+        0 != allocate_pairs(&reference, (uint64_t)opt->normal_pairs,
+                            SAMPLE_NORMAL)) ||
        0 != allocate_pairs(&reference, (uint64_t)opt->tumor_pairs,
                            SAMPLE_TUMOR) ||
-       0 != build_tasks(&reference, &tasks, MAX_SAMPLES)) {
+       0 != build_tasks(&reference, &tasks, active_samples, sample_count)) {
         goto cleanup;
     }
-    discard_unused_contigs(&reference, MAX_SAMPLES);
+    discard_unused_contigs(&reference, active_samples, sample_count);
 
-    fprintf(stderr,
-            "[dwgsim_matched] planned %" PRId64 " normal and %" PRId64
-            " tumor pairs in %zu fixed tasks; %" PRIu64
-            " germline and %" PRIu64 " somatic variants\n",
-            opt->normal_pairs, opt->tumor_pairs, tasks.count,
-            germline_count, somatic_count);
-    for(index = 0; index < MAX_STREAMS; ++index) {
+    if(opt->tumor_only) {
+        fprintf(stderr,
+                "%s planned %" PRId64
+                " tumor pairs in %zu fixed tasks; %" PRIu64
+                " germline and %" PRIu64 " somatic variants\n",
+                log_tag, opt->tumor_pairs, tasks.count,
+                germline_count, somatic_count);
+    }
+    else {
+        fprintf(stderr,
+                "%s planned %" PRId64 " normal and %" PRId64
+                " tumor pairs in %zu fixed tasks; %" PRIu64
+                " germline and %" PRIu64 " somatic variants\n",
+                log_tag, opt->normal_pairs, opt->tumor_pairs, tasks.count,
+                germline_count, somatic_count);
+    }
+    for(index = 0; index < stream_count; ++index) {
         files[index] = fopen(staging[index], "wb");
         if(NULL == files[index]) {
             fprintf(stderr,
-                    "[dwgsim_matched] cannot create staging FASTQ: %s\n",
-                    strerror(errno));
+                    "%s cannot create staging FASTQ: %s\n",
+                    log_tag, strerror(errno));
             goto cleanup;
         }
     }
-    if(0 != run_pipeline(opt, &reference, &tasks, files, MAX_SAMPLES)) {
-        for(index = 0; index < MAX_STREAMS; ++index) files[index] = NULL;
+    if(0 != run_pipeline(opt, &reference, &tasks, files,
+                         active_samples, sample_count)) {
+        for(index = 0; index < stream_count; ++index) files[index] = NULL;
         goto cleanup;
     }
-    for(index = 0; index < MAX_STREAMS; ++index) files[index] = NULL;
+    for(index = 0; index < stream_count; ++index) files[index] = NULL;
 
-    if(0 != publish_matched_outputs(staging, outputs,
+    if(0 != publish_variant_outputs(staging, outputs,
+                                    stream_names, stream_count,
                                     truth_staging, truth_outputs,
                                     manifest_path, manifest_staging,
                                     opt, tasks.count,
                                     germline_count, somatic_count)) {
-        fprintf(stderr, "[dwgsim_matched] failed to publish matched outputs\n");
+        fprintf(stderr, "%s failed to publish %s outputs\n",
+                log_tag, mode_name);
         goto cleanup;
     }
 
     clock_gettime(CLOCK_MONOTONIC, &finish);
     elapsed = (double)(finish.tv_sec - start.tv_sec) +
               (double)(finish.tv_nsec - start.tv_nsec) / 1000000000.0;
-    total_pairs = (uint64_t)opt->normal_pairs +
-                  (uint64_t)opt->tumor_pairs;
+    total_pairs = (uint64_t)opt->normal_pairs + (uint64_t)opt->tumor_pairs;
     fprintf(stderr,
-            "[dwgsim_matched] complete: %" PRIu64
+            "%s complete: %" PRIu64
             " total pairs in %.3f s (%.2f pairs/s)\n",
-            total_pairs, elapsed,
+            log_tag, total_pairs, elapsed,
             0.0 < elapsed ? (double)total_pairs / elapsed : 0.0);
     status = 0;
 
@@ -2432,8 +2522,8 @@ dwgsim_parallel_wgs_run(const dwgsim_opt_t *opt,
     double elapsed;
     int status = 1;
 
-    if(opt->matched) {
-        return run_matched_wgs(opt, reference_path, output_prefix);
+    if(opt->matched || opt->tumor_only) {
+        return run_variant_wgs(opt, reference_path, output_prefix);
     }
 
     clock_gettime(CLOCK_MONOTONIC, &start);
@@ -2463,8 +2553,10 @@ dwgsim_parallel_wgs_run(const dwgsim_opt_t *opt,
                     "\n", reference.count, reference.total_length);
     if(0 != prepare_reference(opt, reference_path, &reference) ||
        0 != allocate_pairs(&reference, (uint64_t)opt->N, SAMPLE_NORMAL) ||
-       0 != build_tasks(&reference, &tasks, 1)) goto cleanup;
-    discard_unused_contigs(&reference, 1);
+       0 != build_tasks(&reference, &tasks,
+                        (const unsigned[]){SAMPLE_NORMAL}, 1)) goto cleanup;
+    discard_unused_contigs(&reference,
+                           (const unsigned[]){SAMPLE_NORMAL}, 1);
 
     fprintf(stderr,
             "[dwgsim_parallel] planned %" PRId64
@@ -2481,7 +2573,8 @@ dwgsim_parallel_wgs_run(const dwgsim_opt_t *opt,
     }
     {
         FILE *files[2] = {file1, file2};
-        if(0 != run_pipeline(opt, &reference, &tasks, files, 1)) {
+        if(0 != run_pipeline(opt, &reference, &tasks, files,
+                             (const unsigned[]){SAMPLE_NORMAL}, 1)) {
             file1 = file2 = NULL;
             goto cleanup;
         }

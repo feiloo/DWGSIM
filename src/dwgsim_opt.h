@@ -44,6 +44,7 @@ typedef struct {
     int32_t compression_threads;
     int32_t compression_level;
     int32_t matched;
+    int32_t tumor_only;
     double somatic_rate;
     double tumor_vaf;
     int64_t normal_pairs;

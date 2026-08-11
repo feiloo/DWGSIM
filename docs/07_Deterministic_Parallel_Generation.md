@@ -1,10 +1,11 @@
 # Deterministic parallel generation design and status
 
-> Status: mutation-free WGS and generated-variant matched normal/tumor WGS
-> are implemented.
+> Status: mutation-free WGS and generated-variant matched normal/tumor and
+> tumor-only WGS are implemented.
 >
 > The deterministic path covers indexed mutation-free reads-only BWA pairs
-> and indexed matched WGS with sparse generated germline and somatic events.
+> and indexed matched/tumor-only WGS with sparse generated germline and
+> somatic events.
 > BED, supplied mutations, NUMA policy, and physical production 64/128-core
 > scaling remain design targets.
 
@@ -14,7 +15,7 @@
 - Keep peak resident memory below 500 GiB, with an operational target below
   150 GiB for a 128-worker GRCh38 run.
 - Produce synchronized paired-end BWA FASTQs: two for a single library or
-  four for matched normal/tumor libraries.
+  tumor-only library, or four for matched normal/tumor libraries.
 - Produce byte-identical BGZF FASTQs across repeated runs and thread counts
   when all non-thread inputs are identical.
 - Parallelize reference traversal, mutation preparation, read generation,
@@ -37,12 +38,14 @@ strand-one selection, read prefixes, maximum-N rejection, seeds, worker
 counts, and BGZF levels 1-9. A missing index or an unsupported option selects
 the compatibility path without changing those modes' established behavior.
 
-The generated-variant extension is selected by `--matched`. It uses `-r`
-as the germline event rate plus `--somatic-rate` and
-`--tumor-vaf`, emits four FASTQs and two phased truth VCFs, and
-publishes `<prefix>.matched.complete`. It currently rejects BED and
-supplied-mutation input rather than falling back to scientifically different
-legacy semantics.
+The generated-variant extension is selected by `--matched` or
+`--tumor-only`. It uses `-r` as the germline event rate plus
+`--somatic-rate` and `--tumor-vaf`. Matched mode emits four
+FASTQs, two phased truth VCFs, and `<prefix>.matched.complete`;
+tumor-only mode emits two tumor FASTQs, the same truth schema, and
+`<prefix>.tumor-only.complete`. It currently rejects BED and supplied-
+mutation input rather than falling back to scientifically different legacy
+semantics.
 
 ## Non-goals
 
@@ -190,6 +193,12 @@ produces four buffers, compresses all four locally, and remains in the bounded
 ring until all four canonical appenders consume it. Sparse variant sets are
 immutable and shared by every worker; no worker receives a diploid genome
 copy. See [Matched normal/tumor simulation](08_Matched_Normal_Tumor.md).
+
+Tumor-only tasks retain the logical tumor sample identity but map it to two
+physical stream slots. They therefore use the same tumor RNG domains, pair
+ranges, biological alleles, ordering, and BGZF boundaries as the tumor side
+of an equivalent matched task. Only the normal buffers and appenders are
+absent.
 
 ## Deterministic planning
 
@@ -534,11 +543,12 @@ format version and a deliberately regenerated golden baseline.
 | Parallel paired task generation | Implemented |
 | Task-local BGZF and ordered paired result ring | Implemented |
 | Indexed parallel reference preparation | Implemented |
-| Sparse parallel generated germline/somatic preparation | Implemented for matched WGS |
+| Sparse parallel generated germline/somatic preparation | Implemented for matched/tumor-only WGS |
 | Bounded dispatch | Implemented |
 | Contig eviction, NUMA-local queues, and cross-node stealing | Not implemented |
 | Explicit levels and level-4 default | Implemented |
 | Matched normal/tumor four-stream generation and truth | Implemented |
+| Tumor-only two-stream generation with matched truth schema | Implemented |
 | BED/WES and supplied-mutation integration | Not implemented; compatibility fallback/rejection |
 | Requested-worker hash validation through 128 | Implemented |
 | Physical 64/128-core performance and memory validation | Not yet run |

@@ -33,14 +33,14 @@ optimized WGS profiles:
 
 - mutation-free, random-read-free, reads-only BWA pairs
   (`-r 0 -y 0 -M 1 -o 1`); and
-- generated germline plus tumor-only somatic variants in matched normal/tumor
-  mode (`--matched`).
+- generated germline plus somatic variants in matched normal/tumor
+  (`--matched`) or tumor-only (`--tumor-only`) mode.
 
 Both load indexed contigs in parallel, generate fixed 8,192-pair tasks with
 schedule-independent RNG, compress task-local BGZF chunks, and commit streams
-in canonical order. The mutation-free profile commits R1/R2; matched mode
-commits normal R1/R2 and tumor R1/R2 together. Complete FASTQs are
-byte-identical across worker counts and repeated runs for the same build,
+in canonical order. The mutation-free and tumor-only profiles commit R1/R2;
+matched mode commits normal R1/R2 and tumor R1/R2 together. Complete FASTQs
+are byte-identical across worker counts and repeated runs for the same build,
 seed, reference/index, non-thread options, and compression level. Successful
 runs publish a completion manifest only after every required file is present.
 
@@ -52,7 +52,7 @@ notes](docs/05_BGZF_FASTQ_Output.md), [deterministic parallel generation
 design/status](docs/07_Deterministic_Parallel_Generation.md), and
 [matched normal/tumor simulation](docs/08_Matched_Normal_Tumor.md).
 
-## Matched normal/tumor WGS
+## Matched and tumor-only WGS
 
 `--matched` generates independent paired libraries that share one phased
 germline truth set while only the tumor can carry somatic events:
@@ -79,6 +79,24 @@ Both mates of a fragment use the same haplotype and tumor-clone state.
 0.5); it does not model copy number, arbitrary tumor purity, or multiple
 clones. The exact model, VCF representation, limitations, and validation are
 documented in [Matched normal/tumor simulation](docs/08_Matched_Normal_Tumor.md).
+
+To generate only the paired tumor library with the same germline/somatic
+model, use:
+
+```sh
+./dwgsim --tumor-only -N 1000000 -z 13 \
+  -r 0.001 --somatic-rate 0.00001 --tumor-vaf 0.25 \
+  reference.fa tumor
+```
+
+This publishes `tumor.tumor.bwa.read1.fastq.gz`,
+`tumor.tumor.bwa.read2.fastq.gz`, both truth VCFs, and
+`tumor.tumor-only.complete`; it does not create normal FASTQs. Use
+`--tumor-pairs` instead of `-N` when a sample-specific count is clearer.
+The truth VCFs retain both `NORMAL` and `TUMOR` genotype columns so the
+germline baseline and tumor-only scope remain explicit. With identical
+simulation options, tumor-only FASTQs and truth VCFs are byte-identical to
+the tumor side and truth files of a matched run.
 
 ## Performance benchmark
 

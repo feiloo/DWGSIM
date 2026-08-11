@@ -3,7 +3,7 @@
 <!---toc start-->
   * [Overview](#overview)
   * [Targeted reads and BED files](#targeted-reads-and-bed-files)
-  * [Matched normal and tumor WGS](#matched-normal-and-tumor-wgs)
+  * [Matched normal/tumor and tumor-only WGS](#matched-normaltumor-and-tumor-only-wgs)
   * [Error rates explained](#error-rates-explained)
   * [Read names explained](#read-names-explained)
   * [Mate pair or paired end modes](#mate-pair-or-paired-end-modes)
@@ -46,10 +46,11 @@ The following output will be created:
 
 Notes:
 
-- matched mode limits generated insertion/deletion events to 1,048,576 bases
+- matched and tumor-only modes limit generated insertion/deletion events to
+  1,048,576 bases
 - The `-H` mode will simulate a haploid genome, whereas the default is to simulate a diploid genome. 
 
-## Matched normal and tumor WGS
+## Matched normal/tumor and tumor-only WGS
 
 Use `--matched` for a true matched-sample model instead of the legacy
 `-F` haplotype-sampling bias:
@@ -73,6 +74,20 @@ Illumina WGS with outer distance and BWA per-end output. It does not accept
 amplicon mode, or BFAST output. Unsupported combinations fail explicitly.
 See [Matched normal/tumor simulation](08_Matched_Normal_Tumor.md) for the
 biological model and exact output contract.
+
+Use `--tumor-only` to emit only the tumor R1/R2 FASTQs while retaining the
+same generated germline and somatic truth:
+
+```console
+dwgsim --tumor-only -N 1000000 -z 13 -r 0.001 \
+  --somatic-rate 0.00001 --tumor-vaf 0.25 reference.fa tumor
+```
+
+The outputs are `tumor.tumor.bwa.read1.fastq.gz`,
+`tumor.tumor.bwa.read2.fastq.gz`, the two truth VCFs, and
+`tumor.tumor-only.complete`. No normal FASTQs are created. The VCFs keep
+their `NORMAL` and `TUMOR` columns to describe the germline baseline and
+somatic difference even though only tumor reads were requested.
 
 ## Targeted reads and BED files
 
@@ -207,7 +222,7 @@ Three FASTQ files are produced, for use with BFAST (interleaved FASTQ) and BWA (
 
 FASTQ output uses gzip-compatible BGZF compression at level 4 by default. Ordinary gzip readers continue to work; BGZF-aware tools can also process the independent compressed blocks. Use `-l INT` to select level 1-9; level 1 favors speed while level 4 is the default size/runtime balance.
 
-Use `-t INT` to set the generation/compression worker count. The default is the number of online logical CPUs detected at startup. Indexed mutation-free BWA WGS and indexed generated-variant `--matched` WGS use the deterministic parallel generator. Fixed tasks, task-local BGZF chunks, and ordered appenders make all complete FASTQs byte-identical across worker counts and repeated runs for identical non-thread inputs. Mutation-free mode publishes `<prefix>.dwgsim.complete`; matched mode publishes `<prefix>.matched.complete` after four FASTQs and two truth VCFs are present.
+Use `-t INT` to set the generation/compression worker count. The default is the number of online logical CPUs detected at startup. Indexed mutation-free BWA WGS and indexed generated-variant `--matched`/`--tumor-only` WGS use the deterministic parallel generator. Fixed tasks, task-local BGZF chunks, and ordered appenders make all complete FASTQs byte-identical across worker counts and repeated runs for identical non-thread inputs. Mutation-free mode publishes `<prefix>.dwgsim.complete`; matched mode publishes `<prefix>.matched.complete` after four FASTQs and two truth VCFs are present; tumor-only mode publishes `<prefix>.tumor-only.complete` after two tumor FASTQs and both truth VCFs are present.
 
 Other modes retain the legacy simulator. In that path, `-t` is distributed across BGZF helpers while read simulation remains serial. BED-restricted WGS/WES, single-sample mutation generation, mutation input, random reads, BFAST/combined output, inner-distance pairs, and non-Illumina data currently use this fallback.
 

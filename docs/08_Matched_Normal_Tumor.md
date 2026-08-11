@@ -1,4 +1,4 @@
-# Matched normal/tumor simulation
+# Matched normal/tumor and tumor-only simulation
 
 ## Quick start
 
@@ -25,14 +25,27 @@ samtools faidx reference.fa
   reference.fa matched
 ```
 
-Matched mode implies no random reads and BWA per-end output. It uses all
-online logical CPUs by default; `-t INT` selects another worker count.
-BGZF level 4 is the default size/runtime balance and `-l 1` is the
+Tumor-only mode uses the same biological model but emits only the paired tumor
+library:
+
+```sh
+./dwgsim --tumor-only -N 800000000 \
+  -z 13 -r 0.001 --somatic-rate 0.00001 --tumor-vaf 0.25 \
+  reference.fa tumor
+```
+
+In this mode `-N` is the tumor pair count; `--tumor-pairs` is an
+equivalent sample-specific spelling. `--normal-pairs` is rejected, and
+`--matched` and `--tumor-only` are mutually exclusive.
+
+Both modes imply no random reads and BWA per-end output. They use all online
+logical CPUs by default; `-t INT` selects another worker count. BGZF
+level 4 is the default size/runtime balance and `-l 1` is the
 faster/larger profile.
 
 ## Output contract
 
-One successful run publishes:
+One successful `--matched` run publishes:
 
 | File | Contents |
 | --- | --- |
@@ -44,16 +57,34 @@ One successful run publishes:
 | `<prefix>.somatic.vcf` | tumor-only phased somatic variants |
 | `<prefix>.matched.complete` | completion and byte-count manifest |
 
-The four FASTQs are staged, synchronized, and closed before publication. Both
-VCFs are also staged. The completion manifest is renamed last; consumers that
-need a complete matched set should require it.
+A successful `--tumor-only` run publishes:
+
+| File | Contents |
+| --- | --- |
+| `<prefix>.tumor.bwa.read1.fastq.gz` | tumor R1 |
+| `<prefix>.tumor.bwa.read2.fastq.gz` | tumor R2 |
+| `<prefix>.germline.vcf` | phased germline baseline |
+| `<prefix>.somatic.vcf` | tumor-only phased somatic variants |
+| `<prefix>.tumor-only.complete` | completion and byte-count manifest |
+
+It does not create empty or placeholder normal FASTQs. The emitted FASTQs are
+staged, synchronized, and closed before publication. Both VCFs are also
+staged. The applicable completion manifest is renamed last; consumers should
+require `<prefix>.matched.complete` or
+`<prefix>.tumor-only.complete` for the requested mode.
+
+Tumor-only VCFs deliberately retain both `NORMAL` and `TUMOR` genotype
+columns. `NORMAL` describes the germline baseline and makes the somatic
+difference explicit even when no normal library was requested. For the same
+seed and simulation options, these truth VCFs and the two tumor FASTQs have
+the same bytes as the truth VCFs and tumor side of a matched run.
 
 Normal and tumor libraries have independent deterministic fragment locations,
 errors, and qualities. Within either sample, R1 and R2 are created as one
 fragment: their normalized identifiers match, and both mates use the same
 haplotype and tumor-clone membership.
 
-Matched names begin with `normal_` or `tumor_`. The remaining
+Variant-mode names begin with `normal_` or `tumor_`. The remaining
 coordinate, strand, sequencing-error, biological-substitution, biological-
 indel, pair-ordinal, and `/1`/`/2` fields retain the normal DWGSIM
 layout.
@@ -104,7 +135,7 @@ placement coverage.
 
 `-R` sets the indel fraction, `-X` the geometric extension
 probability, and `-I` the minimum indel length. Insertions and deletions
-are selected equally within the indel fraction. Generated matched events are
+are selected equally within the indel fraction. Generated events are
 limited to 1,048,576 bases.
 
 Events overlapping another accepted germline or somatic event are rejected.
@@ -128,11 +159,13 @@ The optimized path avoids the legacy pair of full mutated-genome arrays:
    scan for ordinary rates.
 4. Accepted germline and somatic events are stored once in one sparse sorted
    vector per contig.
-5. Fixed 8,192-pair tasks independently generate normal and tumor records.
+5. Fixed 8,192-pair tasks independently generate the requested logical
+   samples: normal plus tumor, or tumor only.
    Read extraction performs one binary search and then walks nearby events.
-6. Each worker compresses four task-local BGZF byte streams.
-7. Four ordered appenders consume the bounded result ring; a result is freed
-   only after normal R1/R2 and tumor R1/R2 have all consumed it.
+6. Each worker compresses four task-local BGZF streams for matched mode or two
+   for tumor-only mode.
+7. One ordered appender per stream consumes the bounded result ring; a result
+   is freed only after every requested R1/R2 stream has consumed it.
 
 The reference and sparse variants are shared read-only. Memory therefore
 scales with the encoded reference, event count, active task buffers, and
@@ -169,9 +202,14 @@ guarantee.
 For the same executable/build platform, reference and index bytes, seed,
 non-thread simulation options, and BGZF level:
 
-- all four complete FASTQ files have identical bytes at every worker count;
+- every complete FASTQ file (four matched or two tumor-only) has identical
+  bytes at every worker count;
 - both truth VCFs have identical bytes at every worker count; and
 - repeated runs reproduce those bytes.
+
+The tumor RNG identity is independent of whether the normal output streams
+are active. Consequently, an equivalent matched and tumor-only run has
+byte-identical tumor FASTQs and truth VCFs.
 
 Thread count changes scheduling only. Variant generation, genotypes, fragment
 locations, haplotypes, clone selection, errors, qualities, task boundaries,
@@ -184,18 +222,19 @@ cross-architecture/compressor identity is not currently promised.
 
 ## Current constraints
 
-Matched mode currently requires:
+Matched and tumor-only modes currently require:
 
 - a readable FASTA plus `<reference>.fai`;
 - paired Illumina nucleotide reads with outer distance;
 - untargeted WGS;
 - BWA per-end FASTQ output; and
-- explicit pair counts through `-N` or both sample-specific options.
+- explicit pair counts through `-N`, both sample-specific options for
+  matched mode, or `--tumor-pairs` for tumor-only mode.
 
-It rejects coverage-driven `-C`, `-x` BED regions, supplied
+They reject coverage-driven `-C`, `-x` BED regions, supplied
 `-m`/`-b`/`-v` mutation files, random reads, haploid mode,
 amplicon mode, inner-distance pairs, BFAST output, SOLiD, and Ion Torrent.
-Rejection is deliberate: matched mode never silently falls back to the legacy
+Rejection is deliberate: neither mode silently falls back to the legacy
 `-F` approximation. BED/WES, supplied truth, CNAs, purity, and multi-clone
 tumors are future extensions.
 
@@ -209,17 +248,20 @@ make test-matched-wgs
 
 The test creates 160 fixed tasks and checks:
 
-- byte identity at 1, 8, repeated 8, 128 requested workers, and the automatic
-  all-online-CPU default;
+- byte identity for matched and tumor-only output at 1, 8, repeated 8, 128
+  requested workers, and the automatic all-online-CPU default;
 - exact counts, 150-base sequences/qualities, synchronized mates, gzip and
-  BGZF decoding, and canonical EOF blocks for all four FASTQs;
+  BGZF decoding, and canonical EOF blocks for every emitted FASTQ;
 - deterministic phased VCFs containing SNVs, insertions, and deletions;
 - shared germline and tumor-only somatic genotypes;
 - independent normal/tumor pair counts and empty-sample task chunks;
+- exact equality between tumor-only files and the tumor/truth files from an
+  equivalent matched run, with no normal files published;
 - zero somatic alternate observations in an error-free normal SNV run and a
   measured tumor allele fraction within a statistical tolerance of the
   configured VAF; and
-- explicit rejection of BED and unindexed matched input.
+- explicit rejection of incompatible mode combinations, normal counts in
+  tumor-only mode, BED input, and unindexed variant-mode input.
 
 The implementation has also passed AddressSanitizer/UndefinedBehaviorSanitizer
 for the complete test and ThreadSanitizer at 8 workers and a 160-task,

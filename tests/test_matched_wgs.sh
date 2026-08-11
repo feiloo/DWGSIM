@@ -87,6 +87,43 @@ run_case() {
     [[ -s ${prefix}.somatic.vcf ]]
 }
 
+run_tumor_only_case() {
+    local label=$1
+    local threads=$2
+    local prefix=$test_root/$label
+    local -a thread_options=()
+
+    if [[ $threads != automatic ]]; then
+        thread_options=(-t "$threads")
+    fi
+
+    "$dwgsim_bin" \
+        --tumor-only \
+        --somatic-rate 0.01 \
+        --tumor-vaf 0.25 \
+        -z 29 \
+        "${thread_options[@]}" \
+        -l 4 \
+        -N "$read_pairs" \
+        -1 150 \
+        -2 150 \
+        -e 0.001 \
+        -E 0.001 \
+        -r 0.01 \
+        -R 0.25 \
+        "$test_root/reference.fa" \
+        "$prefix" >"${prefix}.log" 2>&1
+
+    grep -q 'deterministic tumor-only v1' "${prefix}.log"
+    grep -q 'in 160 fixed tasks' "${prefix}.log"
+    [[ -s ${prefix}.tumor-only.complete ]]
+    [[ -s ${prefix}.germline.vcf ]]
+    [[ -s ${prefix}.somatic.vcf ]]
+    [[ ! -e ${prefix}.normal.bwa.read1.fastq.gz ]]
+    [[ ! -e ${prefix}.normal.bwa.read2.fastq.gz ]]
+    [[ ! -e ${prefix}.matched.complete ]]
+}
+
 verify_eof() {
     local fastq=$1
     local expected=1f8b08040000000000ff0600424302001b0003000000000000000000
@@ -162,11 +199,33 @@ run_case eight 8
 run_case eight_repeat 8
 run_case one_twenty_eight 128
 run_case automatic automatic
+run_tumor_only_case tumor_one 1
+run_tumor_only_case tumor_eight 8
+run_tumor_only_case tumor_eight_repeat 8
+run_tumor_only_case tumor_one_twenty_eight 128
+run_tumor_only_case tumor_automatic automatic
 
 for prefix in one eight eight_repeat one_twenty_eight automatic; do
     verify_sample "$test_root/$prefix" normal "$read_pairs"
     verify_sample "$test_root/$prefix" tumor "$read_pairs"
     verify_truth "$test_root/$prefix"
+done
+
+for prefix in tumor_one tumor_eight tumor_eight_repeat \
+    tumor_one_twenty_eight tumor_automatic; do
+    verify_sample "$test_root/$prefix" tumor "$read_pairs"
+    verify_truth "$test_root/$prefix"
+    grep -q '^format=dwgsim-deterministic-tumor-only-v1$' \
+        "$test_root/$prefix.tumor-only.complete"
+    grep -q '^normal_read_pairs=0$' \
+        "$test_root/$prefix.tumor-only.complete"
+    grep -q "^tumor_read_pairs=$read_pairs$" \
+        "$test_root/$prefix.tumor-only.complete"
+    if grep -q '^normal_read[12]_bytes=' \
+        "$test_root/$prefix.tumor-only.complete"; then
+        echo "test-matched-wgs: tumor-only manifest contains normal FASTQs" >&2
+        exit 1
+    fi
 done
 
 for suffix in \
@@ -177,6 +236,18 @@ for suffix in \
     cmp "$test_root/one.$suffix" "$test_root/eight_repeat.$suffix"
     cmp "$test_root/one.$suffix" "$test_root/one_twenty_eight.$suffix"
     cmp "$test_root/one.$suffix" "$test_root/automatic.$suffix"
+done
+for suffix in \
+    tumor.bwa.read1.fastq.gz tumor.bwa.read2.fastq.gz \
+    germline.vcf somatic.vcf; do
+    cmp "$test_root/tumor_one.$suffix" "$test_root/tumor_eight.$suffix"
+    cmp "$test_root/tumor_one.$suffix" \
+        "$test_root/tumor_eight_repeat.$suffix"
+    cmp "$test_root/tumor_one.$suffix" \
+        "$test_root/tumor_one_twenty_eight.$suffix"
+    cmp "$test_root/tumor_one.$suffix" \
+        "$test_root/tumor_automatic.$suffix"
+    cmp "$test_root/one.$suffix" "$test_root/tumor_one.$suffix"
 done
 if cmp -s "$test_root/one.normal.bwa.read1.fastq.gz" \
           "$test_root/one.tumor.bwa.read1.fastq.gz"; then
@@ -195,16 +266,44 @@ verify_sample "$test_root/unequal" tumor 777
 grep -q '^normal_read_pairs=33$' "$test_root/unequal.matched.complete"
 grep -q '^tumor_read_pairs=777$' "$test_root/unequal.matched.complete"
 
+# A sample-specific count is sufficient in tumor-only mode and must not create
+# placeholder normal streams.
+"$dwgsim_bin" --tumor-only --tumor-pairs 777 \
+    --somatic-rate 0.01 --tumor-vaf 0.25 -r 0.01 -R 0 \
+    -e 0 -E 0 -z 31 -t 8 "$test_root/reference.fa" \
+    "$test_root/tumor-explicit" >"$test_root/tumor-explicit.log" 2>&1
+verify_sample "$test_root/tumor-explicit" tumor 777
+grep -q '^normal_read_pairs=0$' \
+    "$test_root/tumor-explicit.tumor-only.complete"
+grep -q '^tumor_read_pairs=777$' \
+    "$test_root/tumor-explicit.tumor-only.complete"
+[[ ! -e $test_root/tumor-explicit.normal.bwa.read1.fastq.gz ]]
+[[ ! -e $test_root/tumor-explicit.normal.bwa.read2.fastq.gz ]]
+
 # With germline events and sequencing errors disabled, somatic SNV alleles
 # must be absent from normal and converge on the configured tumor VAF.
 "$dwgsim_bin" --matched -N "$read_pairs" --somatic-rate 0.01 \
     --tumor-vaf 0.25 -r 0 -R 0 -e 0 -E 0 -Q 0 -z 37 -t 8 \
     "$test_root/reference.fa" "$test_root/vaf" \
     >"$test_root/vaf.log" 2>&1
+"$dwgsim_bin" --tumor-only -N "$read_pairs" --somatic-rate 0.01 \
+    --tumor-vaf 0.25 -r 0 -R 0 -e 0 -E 0 -Q 0 -z 37 -t 8 \
+    "$test_root/reference.fa" "$test_root/vaf-tumor-only" \
+    >"$test_root/vaf-tumor-only.log" 2>&1
+
+cmp "$test_root/vaf.tumor.bwa.read1.fastq.gz" \
+    "$test_root/vaf-tumor-only.tumor.bwa.read1.fastq.gz"
+cmp "$test_root/vaf.tumor.bwa.read2.fastq.gz" \
+    "$test_root/vaf-tumor-only.tumor.bwa.read2.fastq.gz"
+cmp "$test_root/vaf.germline.vcf" \
+    "$test_root/vaf-tumor-only.germline.vcf"
+cmp "$test_root/vaf.somatic.vcf" \
+    "$test_root/vaf-tumor-only.somatic.vcf"
 
 measure_somatic_alleles() {
-    local sample=$1
-    local fastq=$test_root/vaf.${sample}.bwa.read1.fastq.gz
+    local prefix=$1
+    local sample=$2
+    local fastq=${prefix}.${sample}.bwa.read1.fastq.gz
 
     awk -F '\t' -v sample="$sample" '
         function complement(base) {
@@ -253,13 +352,14 @@ measure_somatic_alleles() {
                 if (ratio < 0.20 || 0.30 < ratio) exit 1
             }
         }
-    ' "$test_root/vaf.somatic.vcf" <(gzip -dc "$fastq")
+    ' "${prefix}.somatic.vcf" <(gzip -dc "$fastq")
 }
 
-measure_somatic_alleles normal
-measure_somatic_alleles tumor
+measure_somatic_alleles "$test_root/vaf" normal
+measure_somatic_alleles "$test_root/vaf" tumor
+measure_somatic_alleles "$test_root/vaf-tumor-only" tumor
 
-# Matched mode must never fall back to legacy semantics for unsupported input.
+# Variant modes must never fall back to legacy semantics for unsupported input.
 if "$dwgsim_bin" --matched -N 10 -x /dev/null \
     "$test_root/reference.fa" "$test_root/rejected-bed" \
     >"$test_root/rejected-bed.log" 2>&1; then
@@ -278,10 +378,34 @@ if "$dwgsim_bin" -N 10 --somatic-rate 0.01 \
     echo "test-matched-wgs: matched-only option was accepted without --matched" >&2
     exit 1
 fi
+if "$dwgsim_bin" --matched --tumor-only -N 10 \
+    "$test_root/reference.fa" "$test_root/rejected-two-modes" \
+    >"$test_root/rejected-two-modes.log" 2>&1; then
+    echo "test-matched-wgs: matched and tumor-only modes were combined" >&2
+    exit 1
+fi
+if "$dwgsim_bin" --tumor-only --normal-pairs 10 --tumor-pairs 10 \
+    "$test_root/reference.fa" "$test_root/rejected-normal-pairs" \
+    >"$test_root/rejected-normal-pairs.log" 2>&1; then
+    echo "test-matched-wgs: tumor-only mode accepted normal pairs" >&2
+    exit 1
+fi
+if "$dwgsim_bin" --tumor-only -N 10 -F 0.25 \
+    "$test_root/reference.fa" "$test_root/rejected-tumor-f" \
+    >"$test_root/rejected-tumor-f.log" 2>&1; then
+    echo "test-matched-wgs: legacy -F was accepted in tumor-only mode" >&2
+    exit 1
+fi
 cp "$test_root/reference.fa" "$test_root/unindexed.fa"
 if "$dwgsim_bin" --matched -N 10 "$test_root/unindexed.fa" \
     "$test_root/rejected-index" >"$test_root/rejected-index.log" 2>&1; then
     echo "test-matched-wgs: unindexed matched reference was not rejected" >&2
+    exit 1
+fi
+if "$dwgsim_bin" --tumor-only -N 10 "$test_root/unindexed.fa" \
+    "$test_root/rejected-tumor-index" \
+    >"$test_root/rejected-tumor-index.log" 2>&1; then
+    echo "test-matched-wgs: unindexed tumor-only reference was not rejected" >&2
     exit 1
 fi
 if find "$test_root" -name '*.partial.*' -print -quit | grep -q .; then

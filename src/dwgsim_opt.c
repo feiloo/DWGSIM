@@ -82,6 +82,7 @@ dwgsim_opt_t* dwgsim_opt_init()
   opt->compression_threads = dwgsim_online_cpu_count();
   opt->compression_level = 4;
   opt->matched = 0;
+  opt->tumor_only = 0;
   opt->somatic_rate = 0.00001;
   opt->tumor_vaf = 0.5;
   opt->normal_pairs = -1;
@@ -159,6 +160,7 @@ int dwgsim_opt_usage(dwgsim_opt_t *opt)
   fprintf(stderr, "         -t INT        total worker threads (generation and compression where supported) [%d]\n", opt->compression_threads);
   fprintf(stderr, "         -l INT        BGZF compression level (1 is fastest; 4 is the default balance) [%d]\n", opt->compression_level);
   fprintf(stderr, "         --matched     generate matched NORMAL/TUMOR paired FASTQs and truth VCFs [%s]\n", __IS_TRUE(opt->matched));
+  fprintf(stderr, "         --tumor-only  generate only TUMOR paired FASTQs plus germline/somatic truth VCFs [%s]\n", __IS_TRUE(opt->tumor_only));
   fprintf(stderr, "         --somatic-rate FLOAT\n");
   fprintf(stderr, "                       tumor-only somatic event rate [%.6g]\n", opt->somatic_rate);
   fprintf(stderr, "         --tumor-vaf FLOAT\n");
@@ -241,6 +243,7 @@ dwgsim_opt_parse(dwgsim_opt_t *opt, int argc, char *argv[])
 {
   enum {
       OPT_MATCHED = 1000,
+      OPT_TUMOR_ONLY,
       OPT_SOMATIC_RATE,
       OPT_TUMOR_VAF,
       OPT_NORMAL_PAIRS,
@@ -248,6 +251,7 @@ dwgsim_opt_parse(dwgsim_opt_t *opt, int argc, char *argv[])
   };
   static const struct option long_options[] = {
       {"matched", no_argument, NULL, OPT_MATCHED},
+      {"tumor-only", no_argument, NULL, OPT_TUMOR_ONLY},
       {"somatic-rate", required_argument, NULL, OPT_SOMATIC_RATE},
       {"tumor-vaf", required_argument, NULL, OPT_TUMOR_VAF},
       {"normal-pairs", required_argument, NULL, OPT_NORMAL_PAIRS},
@@ -259,7 +263,8 @@ dwgsim_opt_parse(dwgsim_opt_t *opt, int argc, char *argv[])
   int muts_input_type = 0;
   int random_reads_explicit = 0;
   int reads_output_explicit = 0;
-  int matched_only_option = 0;
+  int variant_mode_option = 0;
+  int normal_pairs_explicit = 0;
   int legacy_mut_freq_explicit = 0;
   
   while ((c = getopt_long(argc, argv,
@@ -361,53 +366,73 @@ dwgsim_opt_parse(dwgsim_opt_t *opt, int argc, char *argv[])
         case 'o': opt->reads_output_type = atoi(optarg); reads_output_explicit = 1; break;
         case 'a': opt->amplicons = 1; break;
         case OPT_MATCHED: opt->matched = 1; break;
+        case OPT_TUMOR_ONLY: opt->tumor_only = 1; break;
         case OPT_SOMATIC_RATE:
                   opt->somatic_rate = atof(optarg);
-                  matched_only_option = 1;
+                  variant_mode_option = 1;
                   break;
         case OPT_TUMOR_VAF:
                   opt->tumor_vaf = atof(optarg);
-                  matched_only_option = 1;
+                  variant_mode_option = 1;
                   break;
         case OPT_NORMAL_PAIRS:
                   opt->normal_pairs = dwgsim_atoi(optarg, 'N', 0);
                   opt->C = -1;
-                  matched_only_option = 1;
+                  variant_mode_option = 1;
+                  normal_pairs_explicit = 1;
                   break;
         case OPT_TUMOR_PAIRS:
                   opt->tumor_pairs = dwgsim_atoi(optarg, 'N', 0);
                   opt->C = -1;
-                  matched_only_option = 1;
+                  variant_mode_option = 1;
                   break;
         default: fprintf(stderr, "Unrecognized option: -%c\n", c); return 0;
       }
   }
   if (argc - optind < 2) return 0;
-  if(!opt->matched && matched_only_option) {
-      fprintf(stderr,
-              "Error: --somatic-rate, --tumor-vaf, --normal-pairs, and --tumor-pairs require --matched\n");
+  if(opt->matched && opt->tumor_only) {
+      fprintf(stderr, "Error: --matched and --tumor-only are mutually exclusive\n");
       return 0;
   }
-  if(opt->matched && legacy_mut_freq_explicit) {
+  if(!opt->matched && !opt->tumor_only && variant_mode_option) {
       fprintf(stderr,
-              "Error: legacy -F is not a matched tumor model; use --tumor-vaf\n");
+              "Error: --somatic-rate, --tumor-vaf, --normal-pairs, and --tumor-pairs require --matched or --tumor-only\n");
+      return 0;
+  }
+  if((opt->matched || opt->tumor_only) && legacy_mut_freq_explicit) {
+      fprintf(stderr,
+              "Error: legacy -F is not a tumor model; use --tumor-vaf\n");
+      return 0;
+  }
+  if(opt->tumor_only && normal_pairs_explicit) {
+      fprintf(stderr,
+              "Error: --normal-pairs cannot be used with --tumor-only\n");
       return 0;
   }
 
   __check_option(opt->is_inner, 0, 1, "-i");
   __check_option(opt->dist, 0, INT32_MAX, "-d");
   __check_option(opt->std_dev, 0, INT32_MAX, "-s");
-  if(opt->matched) {
+  if(opt->matched || opt->tumor_only) {
       if(0 < opt->N) {
-          if(opt->normal_pairs < 0) opt->normal_pairs = opt->N;
+          if(opt->matched && opt->normal_pairs < 0) {
+              opt->normal_pairs = opt->N;
+          }
           if(opt->tumor_pairs < 0) opt->tumor_pairs = opt->N;
       }
-      if(opt->normal_pairs <= 0 || opt->tumor_pairs <= 0) {
+      if(opt->matched &&
+         (opt->normal_pairs <= 0 || opt->tumor_pairs <= 0)) {
           fprintf(stderr, "Error: matched mode requires -N, or both --normal-pairs and --tumor-pairs\n");
           return 0;
       }
+      if(opt->tumor_only && opt->tumor_pairs <= 0) {
+          fprintf(stderr,
+                  "Error: tumor-only mode requires -N or --tumor-pairs\n");
+          return 0;
+      }
+      if(opt->tumor_only) opt->normal_pairs = 0;
       if(opt->C >= 0) {
-          fprintf(stderr, "Error: coverage-driven -C is not supported in matched mode; use -N\n");
+          fprintf(stderr, "Error: coverage-driven -C is not supported in matched/tumor-only mode; use -N\n");
           return 0;
       }
       if(!random_reads_explicit) opt->rand_read = 0.0;
@@ -468,11 +493,11 @@ dwgsim_opt_parse(dwgsim_opt_t *opt, int argc, char *argv[])
   __check_option(opt->compression_threads, 1, INT32_MAX, "-t");
   __check_option(opt->compression_level, 1, 9, "-l");
 
-  if(opt->matched) {
+  if(opt->matched || opt->tumor_only) {
       if(!isfinite(opt->mut_rate) || !isfinite(opt->somatic_rate) ||
          !isfinite(opt->tumor_vaf) || !isfinite(opt->indel_frac) ||
          !isfinite(opt->indel_extend)) {
-          fprintf(stderr, "Error: matched mutation rates and fractions must be finite numbers\n");
+          fprintf(stderr, "Error: matched/tumor-only mutation rates and fractions must be finite numbers\n");
           return 0;
       }
       if(ILLUMINA != opt->data_type || opt->length[1] <= 0 ||
@@ -483,11 +508,11 @@ dwgsim_opt_parse(dwgsim_opt_t *opt, int argc, char *argv[])
          READS_OUTPUT_TYPE_BWA != opt->reads_output_type ||
          OUTPUT_TYPE_ALL != opt->output_type) {
           fprintf(stderr,
-                  "Error: matched mode currently requires Illumina paired-end, outer distance, -y 0, -M 0, -o 1, and no -H/-a/-m/-b/-v/-x\n");
+                  "Error: matched/tumor-only mode currently requires Illumina paired-end, outer distance, -y 0, -M 0, -o 1, and no -H/-a/-m/-b/-v/-x\n");
           return 0;
       }
       if(opt->indel_min > 1048576) {
-          fprintf(stderr, "Error: matched mode supports -I up to 1048576\n");
+          fprintf(stderr, "Error: matched/tumor-only mode supports -I up to 1048576\n");
           return 0;
       }
   }
