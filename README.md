@@ -38,7 +38,7 @@ Run the self-contained reads-only benchmark with:
 make benchmark
 ```
 
-By default it generates 250,000 pairs of 100 bp reads from the bundled small reference and writes its report to `build/benchmark/benchmark.txt`. The timed section includes DWGSIM startup, simulation, gzip compression, and both FASTQ writes; post-run FASTQ integrity and record-count checks are excluded.
+By default it generates 250,000 paired-end 2x150 bp reads from the bundled small reference and writes its report to `build/benchmark/benchmark.txt`. The timed section includes DWGSIM startup, simulation, gzip compression, and both FASTQ writes; post-run FASTQ integrity and record-count checks are excluded.
 
 For a representative full-reference WGS measurement and a nominal 100x projection, use:
 
@@ -46,7 +46,7 @@ For a representative full-reference WGS measurement and a nominal 100x projectio
 make benchmark-wgs
 ```
 
-This uses the complete pinned GRCh38.p14 assembly, disables mutations and random off-reference reads, and emits only the paired BWA FASTQs to avoid duplicate interleaved output. The default sample is five million 2x100 bp pairs, large enough to distinguish sustained generation from fixed reference work. After the sample, it times a one-pair full-reference run and subtracts that fixed scan/setup cost from throughput before projecting production runtime. The report includes both raw and startup-adjusted rates, exact reference length, estimated pairs, duration, and compressed output size for `BENCHMARK_ESTIMATE_COVERAGE` (100 by default).
+This uses the complete pinned GRCh38.p14 assembly, disables mutations and random off-reference reads, and emits only the paired BWA FASTQs to avoid duplicate interleaved output. The default sample is five million paired-end 2x150 bp pairs, large enough to distinguish sustained generation from fixed reference work. Paired ends are written as synchronized `*.bwa.read1.fastq.gz` and `*.bwa.read2.fastq.gz` files. After the sample, it times a one-pair full-reference run and subtracts that fixed scan/setup cost from throughput before projecting production runtime. The report includes both raw and startup-adjusted rates, exact reference length, estimated pairs, duration, and compressed output size for `BENCHMARK_ESTIMATE_COVERAGE` (100 by default).
 
 The report includes read pairs/s, individual reads/s, bases/s, compressed-output throughput, elapsed and CPU time, CPU utilization, peak resident memory, and compressed output size. The workload and reference are configurable, for example:
 

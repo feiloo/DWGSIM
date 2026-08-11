@@ -62,7 +62,7 @@ dwgsim_opt_t* dwgsim_opt_init()
   opt->std_dev = 50;
   opt->N = -1;
   opt->C = 100;
-  opt->length[0] = opt->length[1] = 70;
+  opt->length[0] = opt->length[1] = 150;
   opt->mut_rate = 0.001;
   opt->mut_freq = 0.5;
   opt->indel_frac = 0.1;

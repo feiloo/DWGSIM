@@ -15,7 +15,9 @@ popd
 mkdir tmp
 
 # Generate the new test data
-./dwgsim -z 13 -N 10000 samtools/examples/ex1.fa tmp/ex1.test
+# Keep the historical golden fixtures pinned to their original 2x70 profile;
+# current defaults are covered by tests/test_bgzf_output.sh.
+./dwgsim -z 13 -N 10000 -1 70 -2 70 samtools/examples/ex1.fa tmp/ex1.test
 
 # Test the differences
 for GZFILE in $(ls -1 tmp/ex1.test*gz)

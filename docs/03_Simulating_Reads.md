@@ -22,11 +22,15 @@ Use `dwgsim -h` to see the full set of command line options (usage).
 An example command is as follows:
 
 ```console
-dwgsim -N 10000 -1 100 -2 100 -y 0 phix.fasta output
+dwgsim -N 10000 -1 150 -2 150 -y 0 phix.fasta output
 ```
 
-This will simulate 10,000 reads (`-N 10000`), which are paired end 2x100bp (`-1 100` for R1 and `-2 100` for R2), with no random reads (`-y 0`),
+This will simulate 10,000 read pairs (`-N 10000`), which are paired-end 2x150 bp (`-1 150` for R1 and `-2 150` for R2), with no random reads (`-y 0`),
 from the given genome FASTA (`phix.fasta`), producing output with prefix `output`.
+
+The default is paired-end 2x150 bp. R1 and R2 are emitted as synchronized
+`output.bwa.read1.fastq.gz` and `output.bwa.read2.fastq.gz` files; use `-o 1`
+when those two per-end files are the only FASTQ outputs needed.
 
 The following output will be created:
 
@@ -49,7 +53,7 @@ Notes:
 Use `-x FILE` to restrict reference-derived reads to target intervals:
 
 ```console
-dwgsim -x targets.bed -N 1000000 -1 100 -2 100 -d 350 -s 50 -y 0 reference.fa targeted
+dwgsim -x targets.bed -N 1000000 -1 150 -2 150 -d 350 -s 50 -y 0 reference.fa targeted
 ```
 
 The regions file must follow this contract:

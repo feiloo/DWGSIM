@@ -88,8 +88,8 @@ if ! "$dwgsim_bin" \
     -z "$random_seed" \
     -t "$threads" \
     -N "$read_pairs" \
-    -1 100 \
-    -2 100 \
+    -1 150 \
+    -2 150 \
     -d 350 \
     -s 50 \
     -y 0 \

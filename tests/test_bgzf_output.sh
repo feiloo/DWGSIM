@@ -7,7 +7,7 @@ bgzip_bin=${BGZIP_BIN:-samtools/bgzip}
 reference_fasta=${1:-samtools/examples/ex1.fa}
 read_pairs=${BGZF_TEST_READ_PAIRS:-1000}
 
-for dependency in "$dwgsim_bin" "$bgzip_bin" gzip awk cmp mktemp; do
+for dependency in "$dwgsim_bin" "$bgzip_bin" gzip awk cmp mktemp paste; do
     if ! command -v "$dependency" >/dev/null 2>&1; then
         echo "test-bgzf: required command not found: $dependency" >&2
         exit 1
@@ -42,6 +42,45 @@ verify_fastq() {
     fi
 }
 
+verify_paired_fastqs() {
+    local read_1_fastq=$1
+    local read_2_fastq=$2
+    local expected_pairs=$3
+
+    if ! paste \
+        <(gzip --decompress --stdout "$read_1_fastq" | awk 'NR % 4 == 1') \
+        <(gzip --decompress --stdout "$read_2_fastq" | awk 'NR % 4 == 1') |
+        awk -F '\t' -v expected="$expected_pairs" '
+            {
+                read_1 = $1
+                read_2 = $2
+                if (read_1 !~ /\/1$/ || read_2 !~ /\/2$/) exit 1
+                sub(/\/1$/, "", read_1)
+                sub(/\/2$/, "", read_2)
+                if (read_1 != read_2) exit 1
+                pairs++
+            }
+            END { if (pairs != expected) exit 1 }
+        '; then
+        echo "test-bgzf: paired FASTQ names do not match" >&2
+        exit 1
+    fi
+}
+
+verify_read_length() {
+    local fastq=$1
+    local expected_length=$2
+
+    if ! gzip --decompress --stdout "$fastq" |
+        awk -v expected="$expected_length" '
+            NR % 4 == 2 && length($0) != expected { exit 1 }
+            END { if (NR == 0) exit 1 }
+        '; then
+        echo "test-bgzf: $fastq contains a read that is not $expected_length bp" >&2
+        exit 1
+    fi
+}
+
 run_case() {
     local label=$1
     local output_mode=$2
@@ -70,10 +109,14 @@ run_case() {
             verify_fastq "${output_prefix}.bfast.fastq.gz" "$((read_pairs * 8))"
             verify_fastq "${output_prefix}.bwa.read1.fastq.gz" "$((read_pairs * 4))"
             verify_fastq "${output_prefix}.bwa.read2.fastq.gz" "$((read_pairs * 4))"
+            verify_paired_fastqs "${output_prefix}.bwa.read1.fastq.gz" \
+                "${output_prefix}.bwa.read2.fastq.gz" "$read_pairs"
             ;;
         1)
             verify_fastq "${output_prefix}.bwa.read1.fastq.gz" "$((read_pairs * 4))"
             verify_fastq "${output_prefix}.bwa.read2.fastq.gz" "$((read_pairs * 4))"
+            verify_paired_fastqs "${output_prefix}.bwa.read1.fastq.gz" \
+                "${output_prefix}.bwa.read2.fastq.gz" "$read_pairs"
             ;;
         2)
             verify_fastq "${output_prefix}.bfast.fastq.gz" "$((read_pairs * 8))"
@@ -91,6 +134,9 @@ run_case all-default 0 default
 run_case bwa-threaded 1 4
 run_case bfast-threaded 2 4
 
+verify_read_length "${test_root}/all-default/reads.bwa.read1.fastq.gz" 150
+verify_read_length "${test_root}/all-default/reads.bwa.read2.fastq.gz" 150
+
 for suffix in bfast.fastq.gz bwa.read1.fastq.gz bwa.read2.fastq.gz; do
     cmp "${test_root}/all-single/reads.${suffix}" \
         "${test_root}/all-threaded/reads.${suffix}"
@@ -98,10 +144,19 @@ for suffix in bfast.fastq.gz bwa.read1.fastq.gz bwa.read2.fastq.gz; do
         "${test_root}/all-default/reads.${suffix}"
 done
 
+help_output=$("$dwgsim_bin" -h 2>&1 || true)
+reported_read_length_1=$(printf '%s\n' "$help_output" |
+    awk '/-1 INT/ { value=$0; sub(/^.*\[/, "", value); sub(/\].*$/, "", value); print value; exit }')
+reported_read_length_2=$(printf '%s\n' "$help_output" |
+    awk '/-2 INT/ { value=$0; sub(/^.*\[/, "", value); sub(/\].*$/, "", value); print value; exit }')
+if [[ $reported_read_length_1 != 150 || $reported_read_length_2 != 150 ]]; then
+    echo "test-bgzf: default read lengths are ${reported_read_length_1}x${reported_read_length_2}; expected 150x150" >&2
+    exit 1
+fi
+
 if command -v getconf >/dev/null 2>&1; then
     online_threads=$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)
     if [[ $online_threads =~ ^[1-9][0-9]*$ ]]; then
-        help_output=$("$dwgsim_bin" -h 2>&1 || true)
         reported_default=$(printf '%s\n' "$help_output" |
             awk '/-t INT/ { value=$0; sub(/^.*\[/, "", value); sub(/\].*$/, "", value); print value; exit }')
         if [[ $reported_default != "$online_threads" ]]; then
