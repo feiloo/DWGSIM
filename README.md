@@ -30,6 +30,13 @@ Use `-t` to set the total DWGSIM thread budget, including the main simulation th
 
 Helper threads are divided across the active BFAST/BWA output streams rather than created once per file. By default, DWGSIM detects the online logical CPU count and uses it as the total budget; use `-t 1` to force single-threaded compression. For a fixed seed and otherwise identical options, the complete BGZF FASTQ files are byte-identical across thread counts. See [the BGZF design and validation plan](docs/05_BGZF_FASTQ_Output.md) for implementation details and compatibility notes.
 
+Read simulation and reference traversal are currently serial. The future
+[deterministic parallel generation target](docs/07_Deterministic_Parallel_Generation.md)
+defines fixed paired-read tasks, schedule-independent RNG, task-local BGZF
+chunks, ordered commit with stable FASTQ hashes, scaling beyond 100 cores, and
+a hard memory target below 500 GiB. It is a design target, not current command
+behavior.
+
 ## Performance benchmark
 
 Run the self-contained reads-only benchmark with:

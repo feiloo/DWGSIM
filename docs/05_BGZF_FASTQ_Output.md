@@ -4,7 +4,7 @@
 
 - Replace zlib's single-stream gzip FASTQ writer with the BGZF implementation already bundled under `samtools/`.
 - Keep output readable by ordinary gzip/FASTQ tools while allowing parallel block compression.
-- Use compression level 1, which is the best measured speed/size tradeoff for DWGSIM output.
+- Use compression level 1 as the current speed-first compression setting.
 - Add `-t INT` as a total DWGSIM thread budget without multiplying that value for every output file.
 - Use all online logical CPUs by default while retaining `-t 1` as an explicit single-threaded mode.
 - Preserve read names, sequences, qualities, output filenames, and all non-FASTQ output formats.
@@ -41,3 +41,13 @@ Compression work is assigned by BGZF block index and completed blocks are writte
 4. Check every output with both ordinary `gzip --test` and BGZF-aware validation.
 5. Confirm seeded `-t 1`, `-t 4`, and automatic-thread runs produce byte-identical BGZF files for all three FASTQ streams.
 6. Benchmark `-t 1` and a representative multi-thread setting, reporting reads/s, CPU use, memory, and compressed size.
+
+## Successor design target
+
+This document describes the current compression-only threading design. The
+planned generation architecture permits a new canonical read order while
+requiring byte-identical paired BGZF files across thread counts and repeated
+runs. It also targets parallel reference traversal, deterministic task-local
+RNG, direct ordered BGZF chunk append, more than 100 workers, and less than
+500 GiB peak memory. See [Deterministic parallel generation
+target](07_Deterministic_Parallel_Generation.md).
