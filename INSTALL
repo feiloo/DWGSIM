@@ -18,7 +18,8 @@ To install DWGSIM, after building, copy the following binaries
 to their appropriate installation directories:
  dwgsim
  dwgsim_eval
- dwgims_pileup_eval.pl
+ dwgsim_mut_to_vcf
+ dwgsim_pileup_eval
 
 === DWGSIM with Galaxy ===
 

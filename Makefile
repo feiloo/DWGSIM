@@ -9,8 +9,10 @@ DWGSIM_EVAL_AOBJS = src/dwgsim_eval.o \
 					samtools/bgzf.o samtools/kstring.o samtools/bam_aux.o samtools/bam.o samtools/bam_import.o samtools/sam.o samtools/bam_index.o \
 					samtools/bam_pileup.o samtools/bam_lpileup.o samtools/bam_md.o samtools/razf.o samtools/faidx.o samtools/bedidx.o \
 					samtools/bam_sort.o samtools/sam_header.o samtools/bam_reheader.o samtools/kprobaln.o samtools/bam_cat.o
+DWGSIM_MUT_TO_VCF_AOBJS = src/dwgsim_mut_to_vcf.o
+DWGSIM_PILEUP_EVAL_AOBJS = src/dwgsim_pileup_eval.o
 
-PROG=		dwgsim dwgsim_eval
+PROG=		dwgsim dwgsim_eval dwgsim_mut_to_vcf dwgsim_pileup_eval
 INCLUDES=	-I.
 SUBDIRS=	samtools . 
 CLEAN_SUBDIRS=	samtools src
@@ -31,6 +33,12 @@ all-recur lib-recur clean-recur cleanlocal-recur install-recur:
 			cd $$wdir; \
 		done;
 
+src/dwgsim_mut_to_vcf.o: src/dwgsim_mut_to_vcf.c
+	$(CC) -c $(CFLAGS) $(INCLUDES) $< -o $@
+
+src/dwgsim_pileup_eval.o: src/dwgsim_pileup_eval.c
+	$(CC) -c $(CFLAGS) $(INCLUDES) $< -o $@
+
 all:$(PROG)
 
 .PHONY:all lib clean cleanlocal test test-unit test-integration clean-tests
@@ -41,6 +49,12 @@ dwgsim:lib-recur $(DWGSIM_AOBJS)
 
 dwgsim_eval:lib-recur $(DWGSIM_EVAL_AOBJS)
 	$(CC) $(CFLAGS) -o $@ $(DWGSIM_EVAL_AOBJS) -Lsamtools -lm -lz -lpthread
+
+dwgsim_mut_to_vcf: $(DWGSIM_MUT_TO_VCF_AOBJS)
+	$(CC) $(CFLAGS) -o $@ $(DWGSIM_MUT_TO_VCF_AOBJS)
+
+dwgsim_pileup_eval: $(DWGSIM_PILEUP_EVAL_AOBJS)
+	$(CC) $(CFLAGS) -o $@ $(DWGSIM_PILEUP_EVAL_AOBJS)
 
 cleanlocal:
 		rm -vfr gmon.out *.o a.out *.exe *.dSYM razip bgzip $(PROG) *~ *.a *.so.* *.so *.dylib; \
