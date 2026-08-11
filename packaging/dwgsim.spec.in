@@ -1,0 +1,41 @@
+%global upstream_version @UPSTREAM_VERSION@
+
+Name:           dwgsim
+Version:        @RPM_VERSION@
+Release:        1%{?dist}
+Summary:        Whole-genome simulator for next-generation sequencing
+
+License:        GPL-2.0-only
+URL:            https://github.com/nh13/DWGSIM
+Source0:        %{name}-%{upstream_version}.tar.gz
+BuildRequires:  gcc
+BuildRequires:  make
+BuildRequires:  zlib-devel
+
+%description
+DWGSIM generates synthetic next-generation sequencing reads and mutation
+truth data for whole-genome and targeted sequencing experiments.
+
+%prep
+%setup -q -n %{name}-%{upstream_version}
+
+%build
+make %{?_smp_mflags} PACKAGE_VERSION=%{upstream_version} \
+    CFLAGS="-g -Wall -O3 -ffile-prefix-map=$PWD=. -fdebug-prefix-map=$PWD=." lib-recur
+make %{?_smp_mflags} PACKAGE_VERSION=%{upstream_version} \
+    CFLAGS="-g -Wall -O3 -ffile-prefix-map=$PWD=. -fdebug-prefix-map=$PWD=." all
+
+%install
+install -d %{buildroot}%{_bindir}
+install -p -m 0755 dwgsim %{buildroot}%{_bindir}/dwgsim
+install -p -m 0755 dwgsim_eval %{buildroot}%{_bindir}/dwgsim_eval
+install -p -m 0755 dwgsim_mut_to_vcf %{buildroot}%{_bindir}/dwgsim_mut_to_vcf
+install -p -m 0755 dwgsim_pileup_eval %{buildroot}%{_bindir}/dwgsim_pileup_eval
+
+%files
+%license LICENSE
+%doc INSTALL README.md docs
+%{_bindir}/dwgsim
+%{_bindir}/dwgsim_eval
+%{_bindir}/dwgsim_mut_to_vcf
+%{_bindir}/dwgsim_pileup_eval

@@ -18,6 +18,36 @@ make help
 
 `make help` lists the build, test, download, and configurable full-reference targets.
 
+## Packaging
+
+The release targets keep their source staging, compiler temporary files,
+package-manager build roots, caches, and finished artifacts inside this
+checkout. By default, everything packaging-specific is under
+`build/packages`, with completed files in `build/packages/artifacts`:
+
+```sh
+make dist
+make deb
+make rpm
+```
+
+`make dist` creates a buildable source archive, including the tracked source
+from the bundled SAMtools submodule. `make deb` requires `dpkg-deb`; `make rpm`
+requires `rpmbuild`. The package builds compile from the source archive in an
+isolated local staging tree, so they do not reuse or modify binaries and object
+files in the working tree.
+
+The workspace can be moved to another directory within the checkout, and the
+parallelism can be limited, for example:
+
+```sh
+make dist PACKAGE_ROOT="$PWD/.packages"
+make deb PACKAGE_JOBS=4
+```
+
+For confinement, `PACKAGE_ROOT` is rejected if it resolves outside this
+checkout or inside `.git`.
+
 ## BGZF FASTQ compression
 
 DWGSIM writes FASTQ files as gzip-compatible BGZF using the implementation bundled with this repository. Compression level 4 is the default size/runtime balance; select levels 1-9 with `-l` (`-l 1` is the fast profile). No external `bgzip` executable is required at runtime.

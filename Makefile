@@ -1,6 +1,12 @@
 .DEFAULT_GOAL := all
 
 PACKAGE_VERSION=0.1.17-dev
+PACKAGE_ROOT ?= $(CURDIR)/build/packages
+PACKAGE_JOBS ?= $(AVAILABLE_CPU_THREADS)
+PACKAGE_CFLAGS ?= $(CFLAGS)
+RPMBUILD ?= rpmbuild
+DPKG_DEB ?= dpkg-deb
+DPKG_SHLIBDEPS ?= dpkg-shlibdeps
 CC=			gcc
 CFLAGS=		-g -Wall -O3 #-m64 #-arch ppc
 DFLAGS=		-D_FILE_OFFSET_BITS=64 -D_LARGEFILE64_SOURCE -D_USE_KNETFILE -DPACKAGE_VERSION=\"$(PACKAGE_VERSION)\"
@@ -95,6 +101,7 @@ src/parallel_wgs.o: src/parallel_wgs.c src/parallel_wgs.h src/dwgsim_opt.h samto
 all:$(PROG)
 
 .PHONY:all lib clean cleanlocal test test-unit test-integration test-bgzf test-parallel-wgs test-matched-wgs test-bed clean-tests help
+.PHONY:dist rpm deb
 .PHONY:download download-human-reference download-human-regions prepare-human-regions samtools-program
 .PHONY: test-human-reference test-human-wgs test-human-wes test-human-wgs-filtered
 .PHONY:benchmark benchmark-wgs
@@ -111,6 +118,9 @@ help:
 	@printf '  %-26s %s\n' 'test-parallel-wgs' 'Test deterministic paired WGS across worker counts.'
 	@printf '  %-26s %s\n' 'test-matched-wgs' 'Test deterministic matched and tumor-only WGS and truth.'
 	@printf '  %-26s %s\n' 'test-bed' 'Test BED boundaries, headers, and validation errors.'
+	@printf '  %-26s %s\n' 'dist' 'Create a source archive under $(PACKAGE_ROOT)/artifacts.'
+	@printf '  %-26s %s\n' 'rpm' 'Create binary/source RPMs under $(PACKAGE_ROOT)/artifacts.'
+	@printf '  %-26s %s\n' 'deb' 'Create a Debian package under $(PACKAGE_ROOT)/artifacts.'
 	@printf '  %-26s %s\n' 'download' 'Download/verify GRCh38.p14 and pinned human BED sources.'
 	@printf '  %-26s %s\n' 'prepare-human-regions' 'Build RefSeq-name WES and blacklist-complement BEDs.'
 	@printf '  %-26s %s\n' 'test-human-reference' 'Run all full-reference WGS/WES smoke profiles.'
@@ -119,6 +129,9 @@ help:
 	@printf '  %-26s %s\n' 'test-human-wgs-filtered' 'Smoke-test WGS excluding ENCODE ENCFF356LFX.'
 	@printf '  %-26s %s\n' 'clean' 'Remove compiled programs, objects, and regular test artifacts.'
 	@printf '  %-26s %s\n' 'help' 'Show this help.'
+	@printf '\nPackaging settings:\n'
+	@printf '  %-30s %s\n' 'PACKAGE_ROOT=...' 'Local package workspace (default: $(PACKAGE_ROOT)).'
+	@printf '  %-30s %s\n' 'PACKAGE_JOBS=...' 'Parallel package-build jobs (default: $(PACKAGE_JOBS)).'
 	@printf '\nBenchmark settings:\n'
 	@printf '  %-30s %s\n' 'BENCHMARK_REFERENCE=...' 'Input FASTA (default: $(BENCHMARK_REFERENCE)).'
 	@printf '  %-30s %s\n' 'BENCHMARK_READ_PAIRS=...' 'Read pairs to generate (default: $(BENCHMARK_READ_PAIRS)).'
@@ -252,21 +265,12 @@ cleanlocal:
 
 clean:cleanlocal-recur clean-tests
 
-dist:clean
-	if [ -f dwgsim-${PACKAGE_VERSION}.tar.gz ]; then \
-        rm -rv dwgsim-${PACKAGE_VERSION}.tar.gz; \
-	fi; \
-	if [ -f dwgsim-${PACKAGE_VERSION}.tar ]; then \
-        rm -rv dwgsim-${PACKAGE_VERSION}.tar; \
-	fi; \
-	if [ -d dwgsim-${PACKAGE_VERSION} ]; then \
-        rm -rv dwgsim-${PACKAGE_VERSION}; \
-	fi; \
-    mkdir dwgsim-${PACKAGE_VERSION}; \
-	cp -r INSTALL LICENSE Makefile README scripts src dwgsim-${PACKAGE_VERSION}/.; \
-	tar -vcf dwgsim-${PACKAGE_VERSION}.tar dwgsim-${PACKAGE_VERSION}; \
-	gzip -9 dwgsim-${PACKAGE_VERSION}.tar; \
-	rm -rv dwgsim-${PACKAGE_VERSION};
+dist rpm deb:
+	PACKAGE_JOBS="$(PACKAGE_JOBS)" \
+		PACKAGE_CFLAGS="$(PACKAGE_CFLAGS)" \
+		RPMBUILD="$(RPMBUILD)" DPKG_DEB="$(DPKG_DEB)" \
+		DPKG_SHLIBDEPS="$(DPKG_SHLIBDEPS)" \
+		/bin/bash scripts/build_packages.sh "$@" "$(PACKAGE_VERSION)" "$(PACKAGE_ROOT)"
 
 # Run all tests
 test: test-unit test-integration test-bgzf test-parallel-wgs test-matched-wgs test-bed
