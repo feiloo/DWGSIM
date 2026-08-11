@@ -34,6 +34,13 @@ HUMAN_SMOKE_DIR ?= build/human-reference-smoke
 HUMAN_SMOKE_READ_PAIRS ?= 100
 HUMAN_SMOKE_SEED ?= 13
 DWGSIM_BIN ?= ./dwgsim
+TIME_BIN ?= /usr/bin/time
+BENCHMARK_REFERENCE ?= samtools/examples/ex1.fa
+BENCHMARK_DIR ?= build/benchmark
+BENCHMARK_READ_PAIRS ?= 250000
+BENCHMARK_READ_LENGTH_1 ?= 100
+BENCHMARK_READ_LENGTH_2 ?= 100
+BENCHMARK_SEED ?= 13
 
 .SUFFIXES:.c .o
 
@@ -60,6 +67,7 @@ all:$(PROG)
 
 .PHONY:all lib clean cleanlocal test test-unit test-integration clean-tests help
 .PHONY:download download-human-reference test-human-reference
+.PHONY:benchmark
 .PHONY:all-recur lib-recur clean-recur cleanlocal-recur install-recur
 
 help:
@@ -67,10 +75,18 @@ help:
 	@printf 'Build and test targets:\n'
 	@printf '  %-26s %s\n' 'all' 'Build all DWGSIM executables (default).'
 	@printf '  %-26s %s\n' 'test' 'Run unit and integration tests.'
+	@printf '  %-26s %s\n' 'benchmark' 'Measure reads-only simulation throughput and resource use.'
 	@printf '  %-26s %s\n' 'download' 'Download and verify the full NCBI GRCh38.p14 reference.'
 	@printf '  %-26s %s\n' 'test-human-reference' 'Run the reads-only DWGSIM smoke test on full GRCh38.p14.'
 	@printf '  %-26s %s\n' 'clean' 'Remove compiled programs, objects, and regular test artifacts.'
 	@printf '  %-26s %s\n' 'help' 'Show this help.'
+	@printf '\nBenchmark settings:\n'
+	@printf '  %-30s %s\n' 'BENCHMARK_REFERENCE=...' 'Input FASTA (default: $(BENCHMARK_REFERENCE)).'
+	@printf '  %-30s %s\n' 'BENCHMARK_READ_PAIRS=...' 'Read pairs to generate (default: $(BENCHMARK_READ_PAIRS)).'
+	@printf '  %-30s %s\n' 'BENCHMARK_READ_LENGTH_1=...' 'First-read length (default: $(BENCHMARK_READ_LENGTH_1)).'
+	@printf '  %-30s %s\n' 'BENCHMARK_READ_LENGTH_2=...' 'Second-read length (default: $(BENCHMARK_READ_LENGTH_2)).'
+	@printf '  %-30s %s\n' 'BENCHMARK_SEED=...' 'Random seed (default: $(BENCHMARK_SEED)).'
+	@printf '  %-30s %s\n' 'BENCHMARK_DIR=...' 'Output and report directory (default: $(BENCHMARK_DIR)).'
 	@printf '\nHuman-reference settings:\n'
 	@printf '  %-26s %s\n' 'HUMAN_REFERENCE_DIR=...' 'Reference destination (default: $(HUMAN_REFERENCE_DIR)).'
 	@printf '  %-26s %s\n' 'HUMAN_SMOKE_READ_PAIRS=...' 'Read pairs to simulate (default: $(HUMAN_SMOKE_READ_PAIRS)).'
@@ -90,6 +106,16 @@ test-human-reference: all
 		HUMAN_SMOKE_SEED="$(HUMAN_SMOKE_SEED)" \
 		/bin/bash scripts/smoke_test_human_reference.sh \
 		"$(HUMAN_REFERENCE_FASTA)" "$(HUMAN_SMOKE_DIR)"
+
+benchmark: dwgsim
+	DWGSIM_BIN="$(DWGSIM_BIN)" \
+		TIME_BIN="$(TIME_BIN)" \
+		BENCHMARK_READ_PAIRS="$(BENCHMARK_READ_PAIRS)" \
+		BENCHMARK_READ_LENGTH_1="$(BENCHMARK_READ_LENGTH_1)" \
+		BENCHMARK_READ_LENGTH_2="$(BENCHMARK_READ_LENGTH_2)" \
+		BENCHMARK_SEED="$(BENCHMARK_SEED)" \
+		/bin/bash scripts/benchmark.sh \
+		"$(BENCHMARK_REFERENCE)" "$(BENCHMARK_DIR)"
 
 dwgsim:lib-recur $(DWGSIM_AOBJS)
 	$(CC) $(CFLAGS) -o $@ $(DWGSIM_AOBJS) -lm -lz -lpthread

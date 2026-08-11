@@ -18,6 +18,25 @@ make help
 
 `make help` lists the build, test, download, and configurable full-reference targets.
 
+## Performance benchmark
+
+Run the self-contained reads-only benchmark with:
+
+```sh
+make benchmark
+```
+
+By default it generates 250,000 pairs of 100 bp reads from the bundled small reference and writes its report to `build/benchmark/benchmark.txt`. The timed section includes DWGSIM startup, simulation, gzip compression, and both FASTQ writes; post-run FASTQ integrity and record-count checks are excluded.
+
+The report includes read pairs/s, individual reads/s, bases/s, compressed-output throughput, elapsed and CPU time, CPU utilization, peak resident memory, and compressed output size. The workload and reference are configurable, for example:
+
+```sh
+make benchmark BENCHMARK_READ_PAIRS=1000000
+make benchmark BENCHMARK_REFERENCE=reference/GRCh38.p14/GCF_000001405.40_GRCh38.p14_genomic.fna
+```
+
+Use `make help` to list all benchmark variables. Results are most comparable when run on an otherwise idle machine with the same compiler flags, reference, read lengths, and storage.
+
 ## Full human-reference smoke test
 
 The full-reference workflow is pinned to the official NCBI RefSeq GRCh38.p14 assembly (`GCF_000001405.40`) and verifies the download against NCBI's published MD5 checksum.
